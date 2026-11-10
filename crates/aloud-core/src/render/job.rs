@@ -2,6 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    panic::{self, AssertUnwindSafe},
     sync::{
         Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -10,7 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{ChapterProgress, JobEnd, Phase, RenderProgress, RenderService, cache, lock};
+use super::{
+    ChapterProgress, JobEnd, Phase, RenderProgress, RenderService, cache, lock, panic_text,
+};
 use crate::{
     SAMPLE_RATE,
     error::{Error, Result},
@@ -135,6 +138,10 @@ impl RenderService {
     }
 
     fn try_job(&self, id: &str, cancel: &AtomicBool) -> Result<JobEnd> {
+        #[cfg(test)]
+        if id == super::tests::PANIC_PROJECT {
+            panic!("injected test panic");
+        }
         let settings = Settings::load(&self.data)?;
         let mut project = self.store.load(id)?;
         project.status = ProjectStatus::Rendering;
@@ -357,7 +364,9 @@ impl RenderService {
             let handles: Vec<_> = (0..workers)
                 .map(|_| {
                     s.spawn(|| {
-                        if let Err(e) = work() {
+                        let result = panic::catch_unwind(AssertUnwindSafe(&work))
+                            .unwrap_or_else(|p| Err(Error::other(panic_text(&*p))));
+                        if let Err(e) = result {
                             fail.store(true, Ordering::SeqCst);
                             lock(&error).get_or_insert(e);
                         }

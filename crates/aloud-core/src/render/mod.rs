@@ -6,6 +6,7 @@ mod preview;
 
 use serde::Serialize;
 use std::{
+    panic::{self, AssertUnwindSafe},
     sync::{
         Arc, Condvar, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
@@ -105,6 +106,15 @@ pub struct RenderService {
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Human-readable text of a caught panic payload.
+pub(crate) fn panic_text(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unexpected internal error")
 }
 
 impl RenderService {
@@ -368,7 +378,13 @@ impl RenderService {
                         .0;
                 }
             };
-            let end = self.run_job(&id, &cancel);
+            let end = panic::catch_unwind(AssertUnwindSafe(|| self.run_job(&id, &cancel)))
+                .unwrap_or_else(|p| {
+                    JobEnd::Failed(format!(
+                        "Something went wrong while making this audiobook: {}",
+                        panic_text(&*p)
+                    ))
+                });
             self.finish_job(&id, end);
         }
     }
@@ -421,3 +437,6 @@ impl RenderService {
         self.cv.notify_all();
     }
 }
+
+#[cfg(test)]
+mod tests;
