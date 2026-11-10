@@ -3,11 +3,14 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        LazyLock, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -133,6 +136,8 @@ pub enum DownloadError {
     Io(io::Error),
     #[error("Cancelled")]
     Cancelled,
+    #[error("This voice pack is already downloading.")]
+    Busy,
 }
 
 impl From<io::Error> for DownloadError {
@@ -142,6 +147,30 @@ impl From<io::Error> for DownloadError {
         } else {
             DownloadError::Io(e)
         }
+    }
+}
+
+/// Files being fetched right now, so two downloads never write the same `.part`.
+static IN_FLIGHT: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(Default::default);
+
+struct Flight(PathBuf);
+
+impl Flight {
+    fn acquire(path: PathBuf) -> Result<Self, DownloadError> {
+        let mut set = IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner);
+        if !set.insert(path.clone()) {
+            return Err(DownloadError::Busy);
+        }
+        Ok(Flight(path))
+    }
+}
+
+impl Drop for Flight {
+    fn drop(&mut self) {
+        IN_FLIGHT
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.0);
     }
 }
 
@@ -209,16 +238,37 @@ pub(crate) fn fetch(
     on_progress: &dyn Fn(DownloadProgress),
     progress_every: Duration,
 ) -> Result<(), DownloadError> {
+    let _flight = Flight::acquire(dir.join(asset.file))?;
     let final_path = dir.join(asset.file);
     if present(dir, asset) {
         return Ok(());
     }
     let part = dir.join(format!("{}.part", asset.file));
+    if fs::metadata(&part).is_ok_and(|m| m.len() == asset.size) {
+        // A previous run got every byte but didn't get to verify and rename it.
+        let mut hasher = Sha256::new();
+        hash_file(&part, &mut hasher)?;
+        if hex(&hasher.finalize()) == asset.sha256 {
+            fs::rename(&part, &final_path)?;
+            on_progress(DownloadProgress {
+                file: asset.file.to_string(),
+                downloaded: asset.size,
+                total: asset.size,
+                bytes_per_sec: 0.0,
+            });
+            return Ok(());
+        }
+        fs::remove_file(&part)?;
+    }
+    let offline = |e: &dyn std::fmt::Display| {
+        tracing::warn!("downloading {}: {e}", asset.file);
+        DownloadError::Offline
+    };
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .tcp_keepalive(Duration::from_secs(30))
         .build()
-        .map_err(|_| DownloadError::Offline)?;
+        .map_err(|e| offline(&e))?;
 
     let mut restarted = false;
     loop {
@@ -236,7 +286,7 @@ pub(crate) fn fetch(
         if existing > 0 {
             req = req.header(reqwest::header::RANGE, format!("bytes={existing}-"));
         }
-        let mut resp = req.send().map_err(|_| DownloadError::Offline)?;
+        let mut resp = req.send().map_err(|e| offline(&e))?;
         let status = resp.status().as_u16();
         if status == 416 && !restarted {
             // The partial file doesn't match the server's idea of the file; start over.
@@ -245,6 +295,7 @@ pub(crate) fn fetch(
             continue;
         }
         if status != 200 && status != 206 {
+            tracing::warn!("downloading {}: the server answered {status}", asset.file);
             return Err(DownloadError::Http(status));
         }
         let mut file = if status == 206 {
@@ -279,8 +330,14 @@ pub(crate) fn fetch(
                 Ok(0) => break,
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => return Err(DownloadError::Offline),
+                Err(e) => return Err(offline(&e)),
             };
+            if downloaded + n as u64 > asset.size {
+                drop(file);
+                let _ = fs::remove_file(&part);
+                tracing::warn!("{}: server sent more than {} bytes", asset.file, asset.size);
+                return Err(DownloadError::Corrupt);
+            }
             file.write_all(&buf[..n])?;
             hasher.update(&buf[..n]);
             downloaded += n as u64;
@@ -296,6 +353,7 @@ pub(crate) fn fetch(
 
         if downloaded != asset.size || hex(&hasher.finalize()) != asset.sha256 {
             let _ = fs::remove_file(&part);
+            tracing::warn!("{}: size or checksum mismatch", asset.file);
             return Err(DownloadError::Corrupt);
         }
         fs::rename(&part, &final_path)?;
@@ -460,5 +518,91 @@ mod tests {
         remove(&data, ModelVariant::Fast).unwrap();
         assert!(!model.exists() && !part.exists());
         remove(&data, ModelVariant::Fast).unwrap();
+    }
+
+    #[test]
+    fn full_size_part_is_installed_without_a_request() {
+        let data = blob();
+        let sha = hex(&Sha256::digest(&data));
+        let (url, ranges) = serve(data.clone());
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("blob.bin.part"), &data).unwrap();
+        fetch(
+            &url,
+            asset(&data, &sha),
+            dir.path(),
+            &AtomicBool::new(false),
+            &|_| {},
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert!(ranges.lock().unwrap().is_empty());
+        assert_eq!(fs::read(dir.path().join("blob.bin")).unwrap(), data);
+        assert!(!dir.path().join("blob.bin.part").exists());
+    }
+
+    #[test]
+    fn oversized_body_is_corrupt() {
+        let data = blob();
+        let half = &data[..data.len() / 2];
+        let sha = hex(&Sha256::digest(half));
+        let (url, _) = serve(data.clone());
+        let dir = tempfile::tempdir().unwrap();
+        let r = fetch(
+            &url,
+            asset(half, &sha),
+            dir.path(),
+            &AtomicBool::new(false),
+            &|_| {},
+            Duration::ZERO,
+        );
+        assert!(matches!(r, Err(DownloadError::Corrupt)));
+        assert!(!dir.path().join("blob.bin").exists());
+        assert!(!dir.path().join("blob.bin.part").exists());
+    }
+
+    #[test]
+    fn second_concurrent_download_is_busy() {
+        let data = blob();
+        let sha = hex(&Sha256::digest(&data));
+        let (url, _) = serve(data.clone());
+        let dir = tempfile::tempdir().unwrap();
+        let a = asset(&data, &sha);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let started_tx = Mutex::new(Some(started_tx));
+        let release_rx = Mutex::new(Some(release_rx));
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| {
+                fetch(
+                    &url,
+                    a,
+                    dir.path(),
+                    &AtomicBool::new(false),
+                    &|_| {
+                        if let Some(tx) = started_tx.lock().unwrap().take() {
+                            tx.send(()).unwrap();
+                            if let Some(rx) = release_rx.lock().unwrap().take() {
+                                let _ = rx.recv();
+                            }
+                        }
+                    },
+                    Duration::ZERO,
+                )
+            });
+            started_rx.recv().unwrap();
+            let second = fetch(
+                &url,
+                a,
+                dir.path(),
+                &AtomicBool::new(false),
+                &|_| {},
+                Duration::ZERO,
+            );
+            assert!(matches!(second, Err(DownloadError::Busy)));
+            release_tx.send(()).unwrap();
+            first.join().unwrap().unwrap();
+        });
+        assert_eq!(fs::read(dir.path().join("blob.bin")).unwrap(), data);
     }
 }
