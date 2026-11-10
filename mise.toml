@@ -1,0 +1,38 @@
+[tools]
+rust = { version = "1.99", components = "clippy,rustfmt" }
+bun = "1.4"
+cmake = "3"
+
+[env]
+PIPER_ESPEAKNG_DATA_DIRECTORY = "{{config_root}}/src-tauri/resources"
+
+[tasks.setup]
+description = "Install JS deps and fetch bundled espeak-ng data"
+run = ["bun install", "bun scripts/fetch-espeak.ts"]
+
+[tasks.dev]
+run = "bun tauri dev"
+depends = ["setup"]
+
+[tasks.build]
+run = "bun tauri build"
+depends = ["setup"]
+
+[tasks.test]
+run = ["cargo test --workspace", "bun run check"]
+
+[tasks.lint]
+run = ["cargo fmt --all --check", "cargo clippy --workspace --all-targets -- -D warnings", "bun run check", "bun run lint"]
+
+[tasks.fmt]
+run = ["cargo fmt --all", "bun run format"]
+
+[tasks.models]
+run = "bun scripts/fetch-models.ts .dev-data/models"
+
+[tasks.e2e]
+run = "cargo run --release -p aloud-core --example aloud -- --data .dev-data --epub .dev-data/alice.epub --chapters 1-2 --out .dev-data/out"
+depends = ["models"]
+
+[tasks.icons]
+run = "bun tauri icon assets/icon.svg"
