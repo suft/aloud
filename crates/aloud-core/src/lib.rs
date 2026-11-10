@@ -9,6 +9,7 @@ pub mod error;
 pub mod export;
 pub mod fsx;
 pub mod g2p;
+pub mod housekeeping;
 pub mod models;
 pub mod paths;
 pub mod plan;

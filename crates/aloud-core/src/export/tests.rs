@@ -166,6 +166,58 @@ fn cancelled_export_leaves_no_file() {
 }
 
 #[test]
+fn failed_rename_leaves_no_part() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = DataDir::new(dir.path().join("data"));
+    let book = Book {
+        meta: BookMeta::default(),
+        chapters: vec![BookChapter {
+            id: "c1".into(),
+            title: "One".into(),
+            kind: ChapterKind::Body,
+            blocks: vec![Block::Para("x".into())],
+            words: 1,
+        }],
+    };
+    let out = dir.path().join("out");
+    let settings = Settings {
+        output_dir: out.clone(),
+        ..Settings::default()
+    };
+    let mut project = Project::new("proj", "t.epub".into(), &book, &settings);
+    // A non-empty directory where the file should go makes the final rename fail.
+    fs::create_dir_all(out.join("Blocked.m4b").join("x")).unwrap();
+    project.status = ProjectStatus::Done {
+        output: out.join("Blocked.m4b"),
+        finished_at: 0,
+        inputs_hash: "h".into(),
+    };
+    cache::write_pcm(&data.project_audio("proj"), &"aa".repeat(16), &tone(1.0)).unwrap();
+    let plan = Plan {
+        inputs_hash: "h".into(),
+        intro: vec![],
+        oov: vec![],
+        chapters: vec![PlannedChapter {
+            chapter_id: "c1".into(),
+            title: "One".into(),
+            segments: vec![speech("aa"), Segment::Silence { ms: 500 }],
+            units: 10,
+        }],
+    };
+
+    let r = export(
+        &data,
+        &project,
+        &plan,
+        &settings,
+        &|_| {},
+        &AtomicBool::new(false),
+    );
+    assert!(r.is_err());
+    assert!(!out.join("Blocked.m4b.part").exists());
+}
+
+#[test]
 fn long_titles_and_more_than_255_chapters_export() {
     let dir = tempfile::tempdir().unwrap();
     let data = DataDir::new(dir.path().join("data"));

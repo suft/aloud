@@ -24,6 +24,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Downloads trust the certificates installed on your computer, and a blocked secure connection gets its own message (#62).
 - A voice pack can't be removed while a download is running, and a failed download can't leave Aloud thinking one is still going (#43).
 - Audiobook file names stay within the file-name length limit, avoid names Windows reserves, and drop invisible direction characters (#22).
+- A finished audiobook is written to disk before it appears, and half-written `.m4b.part` files left by a crash are cleaned up when Aloud starts (#21).
 
 ## [0.1.0]
 

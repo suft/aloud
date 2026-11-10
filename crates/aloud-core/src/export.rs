@@ -277,7 +277,16 @@ pub fn export(
     );
     match result {
         Ok(info) => {
-            fs::rename(&part, &out_path)?;
+            // Windows' FlushFileBuffers needs write access, so open for write.
+            let published = fs::OpenOptions::new()
+                .write(true)
+                .open(&part)
+                .and_then(|f| f.sync_all())
+                .and_then(|()| fs::rename(&part, &out_path));
+            if let Err(e) = published {
+                let _ = fs::remove_file(&part);
+                return Err(e.into());
+            }
             Ok(FinishedInfo {
                 output: out_path,
                 ..info

@@ -164,6 +164,7 @@ impl RenderService {
         phonemizer: Box<dyn Phonemize>,
         open_engine: OpenEngine,
     ) -> Arc<Self> {
+        crate::housekeeping::sweep(&data);
         let store = ProjectStore::new(data.clone());
         let mut queue = QueueState::load(&data).unwrap_or_default();
         queue.items.retain(|id| store.exists(id));
