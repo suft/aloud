@@ -34,5 +34,9 @@ run = "bun scripts/fetch-models.ts .dev-data/models"
 run = "cargo run --release -p aloud-core --example aloud -- --data .dev-data --epub .dev-data/alice.epub --chapters 1-2 --out .dev-data/out"
 depends = ["models"]
 
+[tasks.screenshots]
+description = "Regenerate the README screenshots in docs/screenshots/"
+run = ["bun x playwright install --only-shell chromium", "bun scripts/screenshots/capture.ts"]
+
 [tasks.icons]
 run = "bun tauri icon assets/icon.svg"
