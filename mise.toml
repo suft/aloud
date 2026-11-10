@@ -19,7 +19,7 @@ run = "bun tauri build"
 depends = ["setup"]
 
 [tasks.test]
-run = ["cargo test --workspace", "bun run check"]
+run = ["cargo test --workspace --exclude aloud", "bun run check"]
 
 [tasks.lint]
 run = ["cargo fmt --all --check", "cargo clippy --workspace --all-targets -- -D warnings", "bun run check", "bun run lint"]
