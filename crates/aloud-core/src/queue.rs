@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{error::Result, fsx, paths::DataDir};
 
 /// Persisted render queue. The head is the active (or next) project.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(ts_rs::TS, Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct QueueState {
     pub items: Vec<String>,

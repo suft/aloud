@@ -30,7 +30,7 @@ use crate::{
     voices::Voices,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(ts_rs::TS, Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Phase {
     Planning,
@@ -38,7 +38,7 @@ pub enum Phase {
     Exporting,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(ts_rs::TS, Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChapterProgress {
     pub id: String,
@@ -46,7 +46,7 @@ pub struct ChapterProgress {
     pub total_units: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(ts_rs::TS, Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderProgress {
     pub project_id: String,

@@ -6,7 +6,7 @@ use std::{borrow::Cow, collections::HashMap, sync::LazyLock};
 
 use crate::error::{Error, Result};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(ts_rs::TS, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 pub enum SayAs {
     /// Replacement text, e.g. "Cha-ree-an-dee".
@@ -15,7 +15,7 @@ pub enum SayAs {
     Phonemes(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(ts_rs::TS, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PronEntry {
     pub id: String,

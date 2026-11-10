@@ -44,10 +44,7 @@
   }
 
   function moveTo(target: PronScope) {
-    void run(async () => {
-      await book.savePronunciation(target, entry);
-      await book.removePronunciation(scope, entry.id);
-    });
+    void run(() => book.movePronunciation(entry.id, target));
   }
 
   async function test() {

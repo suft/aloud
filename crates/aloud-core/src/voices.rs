@@ -14,13 +14,15 @@ use crate::error::{Error, Result};
 const STYLE_ROWS: usize = 510;
 const STYLE_DIM: usize = 256;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(ts_rs::TS, Debug, Clone, Serialize)]
 pub struct VoiceInfo {
     pub id: &'static str,
     pub name: &'static str,
     /// `"us"` or `"uk"`.
+    #[ts(type = "\"us\" | \"uk\"")]
     pub accent: &'static str,
     /// `"female"` or `"male"`.
+    #[ts(type = "\"female\" | \"male\"")]
     pub gender: &'static str,
     pub grade: &'static str,
     pub recommended: bool,

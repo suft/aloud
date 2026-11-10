@@ -114,4 +114,11 @@ export class BookView {
     if (scope === "global") app.settings = { ...app.settings, pronunciations: list };
     await this.load();
   }
+
+  /** Moves a fix between this book and all books in one step; it is never in both lists. */
+  async movePronunciation(entryId: string, to: PronScope) {
+    const list = await api.movePronunciation(this.id, entryId, to);
+    app.settings = { ...app.settings, pronunciations: list };
+    await this.load();
+  }
 }

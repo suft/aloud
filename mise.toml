@@ -31,10 +31,20 @@ depends = ["setup"]
 run = ["cargo test {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} --workspace --exclude aloud", "bun run check"]
 
 [tasks.lint]
-run = ["cargo fmt --all --check", "cargo clippy {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} --workspace --all-targets -- -D warnings", "bun run check", "bun run lint"]
+run = [
+  "cargo fmt --all --check",
+  "cargo clippy {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} --workspace --all-targets -- -D warnings",
+  "cargo run {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} -p aloud --example bindings -- --check",
+  "bun run check",
+  "bun run lint",
+]
 
 [tasks.fmt]
 run = ["cargo fmt --all", "bun run format"]
+
+[tasks.bindings]
+description = "Regenerate the TypeScript types in src/lib/bindings from the Rust DTOs"
+run = "cargo run {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} -p aloud --example bindings"
 
 [tasks.models]
 run = "bun scripts/fetch-models.ts .dev-data/models"

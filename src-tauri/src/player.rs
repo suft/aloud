@@ -51,9 +51,9 @@ pub enum Cmd {
     Stop,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(ts_rs::TS, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct PlayerState {
+pub(crate) struct PlayerState {
     project_id: Option<String>,
     chapter_id: Option<String>,
     title: String,

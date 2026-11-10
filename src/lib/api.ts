@@ -1,208 +1,61 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type ModelVariant = "standard" | "fast";
-export type Performance = "full" | "balanced";
-export type Theme = "system" | "light" | "dark";
+import type { AboutDoc } from "./bindings/AboutDoc";
+import type { AppStateDto } from "./bindings/AppStateDto";
+import type { DownloadProgress } from "./bindings/DownloadProgress";
+import type { ModelVariant } from "./bindings/ModelVariant";
+import type { ModelsStatus } from "./bindings/ModelsStatus";
+import type { PlayerState } from "./bindings/PlayerState";
+import type { ProjectDetail } from "./bindings/ProjectDetail";
+import type { ProjectPatch } from "./bindings/ProjectPatch";
+import type { ProjectSummary } from "./bindings/ProjectSummary";
+import type { PronEntry } from "./bindings/PronEntry";
+import type { PronScope } from "./bindings/PronScope";
+import type { QueueState } from "./bindings/QueueState";
+import type { RenderProgress } from "./bindings/RenderProgress";
+import type { Settings } from "./bindings/Settings";
+import type { SettingsPatch } from "./bindings/SettingsPatch";
+import type { StorageSize } from "./bindings/StorageSize";
+import type { TrickyWord } from "./bindings/TrickyWord";
+import type { UpdateInfo } from "./bindings/UpdateInfo";
+import type { UpdateProgress } from "./bindings/UpdateProgress";
+import type { VoiceInfo } from "./bindings/VoiceInfo";
 
-export interface PronEntry {
-  id: string;
-  word: string;
-  sayAs: { kind: "text" | "phonemes"; value: string };
-  matchCase: boolean;
-}
-
-export interface Settings {
-  model: ModelVariant;
-  outputDir: string;
-  performance: Performance;
-  gpu: boolean;
-  keepAwake: boolean;
-  notifyOnFinish: boolean;
-  checkUpdates: boolean;
-  defaultVoice: string;
-  defaultSpeed: number;
-  pronunciations: PronEntry[];
-  theme: Theme;
-}
-export type SettingsPatch = Partial<Settings>;
-
-export interface UpdateInfo {
-  version: string;
-  notes: string | null;
-}
-
-export interface UpdateProgress {
-  downloaded: number;
-  total: number | null;
-}
-
-export interface ModelsStatus {
-  standard: boolean;
-  fast: boolean;
-  voices: boolean;
-}
-
-export interface DownloadProgress {
-  file: string;
-  downloaded: number;
-  total: number;
-  bytesPerSec: number;
-}
-
-export interface QueueState {
-  /** Project ids; the head is the active one. */
-  items: string[];
-  paused: boolean;
-}
-
-export type Phase = "planning" | "rendering" | "exporting";
-
-export interface RenderProgress {
-  projectId: string;
-  phase: Phase;
-  doneUnits: number;
-  totalUnits: number;
-  fraction: number;
-  chapters: { id: string; doneUnits: number; totalUnits: number }[];
-  etaSecs: number | null;
-  realtimeFactor: number | null;
-}
-
-export type ProjectStatus =
-  | { state: "draft" }
-  | { state: "queued" }
-  | { state: "rendering" }
-  | { state: "paused" }
-  | { state: "exporting" }
-  | { state: "done"; output: string; finishedAt: number; inputsHash: string }
-  | { state: "failed"; message: string };
-
-export type AboutDoc = "source" | "license" | "notices";
-
-export interface ProjectSummary {
-  id: string;
-  title: string;
-  authors: string[];
-  coverPath: string | null;
-  /** "#rrggbb" */
-  accent: string | null;
-  status: ProjectStatus;
-  /** Fraction (0..1) of included audio already rendered. */
-  progress: number;
-  updatedAt: number;
-  /** The saved data can't be read; the book can only be removed. */
-  damaged: boolean;
-}
-
-export interface BookMeta {
-  title: string;
-  authors: string[];
-  language: string | null;
-  publisher: string | null;
-  date: string | null;
-  description: string | null;
-  coverFile: string | null;
-  accent: string | null;
-}
-
-export interface Project {
-  id: string;
-  sourceFileName: string;
-  createdAt: number;
-  updatedAt: number;
-  meta: BookMeta;
-  chapters: { id: string; title: string; included: boolean; words?: number; kind?: ChapterKind }[];
-  voice: string;
-  speed: number;
-  intro: boolean;
-  pronunciations: PronEntry[];
-  dismissedWords: string[];
-  status: ProjectStatus;
-}
-
-export type ChapterKind = "body" | "frontMatter" | "backMatter";
-
-export interface ChapterDetail {
-  id: string;
-  title: string;
-  kind: ChapterKind;
-  included: boolean;
-  words: number;
-  estSecs: number;
-  renderedFraction: number;
-  playable: boolean;
-}
-
-export interface ProjectDetail {
-  project: Project;
-  coverPath: string | null;
-  wordCount: number;
-  estimatedSecs: number;
-  chapters: ChapterDetail[];
-  stale: boolean;
-  /** 0..1, or null while the plan is being rebuilt after an edit. */
-  redoFraction: number | null;
-  /** Preview of the exported file name. */
-  outputFileName: string;
-}
-
-export interface ProjectPatch {
-  meta?: {
-    title?: string;
-    authors?: string[];
-    date?: string | null;
-    description?: string | null;
-  };
-  voice?: string;
-  speed?: number;
-  intro?: boolean;
-  chapters?: { id: string; title?: string; included?: boolean }[];
-}
-
-export interface VoiceInfo {
-  id: string;
-  name: string;
-  accent: "us" | "uk";
-  gender: "female" | "male";
-  grade: string;
-  recommended: boolean;
-}
-
-export interface TrickyWord {
-  word: string;
-  count: number;
-  sample: string;
-}
-
-export interface PlayerState {
-  projectId?: string | null;
-  chapterId?: string | null;
-  title: string;
-  positionMs: number;
-  durationMs: number;
-  playing: boolean;
-}
-
-export interface SpeedRange {
-  min: number;
-  max: number;
-  uiMin: number;
-  uiMax: number;
-}
-
-export interface AppStateDto {
-  settings: Settings;
-  models: ModelsStatus;
-  queue: QueueState;
-  active: RenderProgress | null;
-  gpuSupported: boolean;
-  speedRange: SpeedRange;
-  version: string;
-  startupNotices: string[];
-}
-
-export type PronScope = "book" | "global";
+export type { AboutDoc } from "./bindings/AboutDoc";
+export type { AppStateDto } from "./bindings/AppStateDto";
+export type { BookMeta } from "./bindings/BookMeta";
+export type { ChapterDetail } from "./bindings/ChapterDetail";
+export type { ChapterKind } from "./bindings/ChapterKind";
+export type { ChapterPatch } from "./bindings/ChapterPatch";
+export type { ChapterProgress } from "./bindings/ChapterProgress";
+export type { ChapterSel } from "./bindings/ChapterSel";
+export type { DownloadProgress } from "./bindings/DownloadProgress";
+export type { MetaPatch } from "./bindings/MetaPatch";
+export type { ModelVariant } from "./bindings/ModelVariant";
+export type { ModelsStatus } from "./bindings/ModelsStatus";
+export type { Performance } from "./bindings/Performance";
+export type { Phase } from "./bindings/Phase";
+export type { PlayerState } from "./bindings/PlayerState";
+export type { Project } from "./bindings/Project";
+export type { ProjectDetail } from "./bindings/ProjectDetail";
+export type { ProjectPatch } from "./bindings/ProjectPatch";
+export type { ProjectStatus } from "./bindings/ProjectStatus";
+export type { ProjectSummary } from "./bindings/ProjectSummary";
+export type { PronEntry } from "./bindings/PronEntry";
+export type { PronScope } from "./bindings/PronScope";
+export type { QueueState } from "./bindings/QueueState";
+export type { RenderProgress } from "./bindings/RenderProgress";
+export type { SayAs } from "./bindings/SayAs";
+export type { Settings } from "./bindings/Settings";
+export type { SettingsPatch } from "./bindings/SettingsPatch";
+export type { SpeedRange } from "./bindings/SpeedRange";
+export type { StorageSize } from "./bindings/StorageSize";
+export type { Theme } from "./bindings/Theme";
+export type { TrickyWord } from "./bindings/TrickyWord";
+export type { UpdateInfo } from "./bindings/UpdateInfo";
+export type { UpdateProgress } from "./bindings/UpdateProgress";
+export type { VoiceInfo } from "./bindings/VoiceInfo";
 
 /** Pull a user-facing message out of whatever `invoke` rejected with. */
 export function errorMessage(e: unknown): string {
@@ -220,12 +73,6 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
     throw new Error(errorMessage(e));
   }
 }
-
-export interface StorageSize {
-  books: number;
-  previews: number;
-}
-
 export const api = {
   getAppState: () => call<AppStateDto>("get_app_state"),
   updateSettings: (patch: SettingsPatch) => call<Settings>("update_settings", { patch }),
@@ -251,6 +98,8 @@ export const api = {
     call<PronEntry[]>("upsert_pronunciation", { scope, projectId, entry }),
   deletePronunciation: (scope: PronScope, entryId: string, projectId?: string) =>
     call<PronEntry[]>("delete_pronunciation", { scope, projectId, entryId }),
+  movePronunciation: (projectId: string, entryId: string, to: PronScope) =>
+    call<PronEntry[]>("move_pronunciation", { projectId, entryId, to }),
   testPronunciation: (projectId: string, text: string) =>
     call<void>("test_pronunciation", { projectId, text }),
 

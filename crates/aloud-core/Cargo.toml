@@ -24,6 +24,7 @@ encoding_rs = { workspace = true }
 image = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
+ts-rs = { workspace = true }
 sha2 = { workspace = true }
 num_cpus = { workspace = true }
 keepawake = { workspace = true }

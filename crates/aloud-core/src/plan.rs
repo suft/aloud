@@ -426,7 +426,7 @@ pub fn split_phonemes(phonemes: &str, max: usize) -> Vec<String> {
 
 // --- tricky words ---
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(ts_rs::TS, Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TrickyWord {
     pub word: String,

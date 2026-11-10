@@ -89,7 +89,7 @@ pub fn voices_path(data: &DataDir) -> PathBuf {
     data.models().join(voices_asset().file)
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(ts_rs::TS, Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub struct ModelsStatus {
     pub standard: bool,
     pub fast: bool,
@@ -131,7 +131,7 @@ pub fn remove(data: &DataDir, variant: ModelVariant) -> io::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(ts_rs::TS, Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadProgress {
     pub file: String,

@@ -235,6 +235,8 @@ export function appState(s: Scenario): AppStateDto {
     speedRange: { min: 0.5, max: 2, uiMin: 0.8, uiMax: 1.3 },
     version: pkg.version,
     startupNotices: [],
+    sampleText:
+      "Once upon a time, in a quiet town by the sea, there lived a girl who loved stories more than anything in the world.",
   };
 }
 

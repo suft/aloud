@@ -37,8 +37,10 @@ Tauri 2 shell, Svelte 5 UI.
 - Settings writes go through `AppState::update_settings`, which holds the settings lock.
 - Reading-speed limits live only in `aloud_core::speed`; the UI gets them through `AppStateDto`.
 - Model URLs, sizes and checksums live only in `crates/aloud-core/models.json`; `models.rs` and `scripts/lib.ts` read it.
-- A changed command or DTO must also change in `src/lib/api.ts` and in the backend mocks
-  `scripts/screenshots/{mock,alice}.ts`.
+- The UI's DTO types in `src/lib/bindings/` are generated from the Rust types with ts-rs: after
+  changing a DTO run `mise run bindings` (`mise run lint` fails when they are stale) and never edit
+  them by hand. A new DTO also goes into `src-tauri/src/bindings.rs`. A changed or new command must
+  also change in `src/lib/api.ts` and in the backend mocks `scripts/screenshots/{mock,alice}.ts`.
 - Events: `render-progress`, `project-updated`, `queue-updated`, `notice`, `player-state`,
   `model-download`, `update-progress`, `confirm-quit`.
 - `src/lib/components/ui/` is generated shadcn-svelte code; don't restyle it beyond what is needed.

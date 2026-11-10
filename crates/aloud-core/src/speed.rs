@@ -15,7 +15,7 @@ pub fn clamp(v: f32) -> f32 {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[derive(ts_rs::TS, Debug, Clone, Copy, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpeedRange {
     pub min: f32,

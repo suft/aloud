@@ -1,3 +1,4 @@
+mod bindings;
 mod commands;
 mod error;
 mod player;
@@ -9,6 +10,8 @@ use aloud_core::{
 };
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use tauri::{Emitter, Manager, WindowEvent};
+
+pub use bindings::export_bindings;
 
 use state::{AppState, TauriEvents};
 
@@ -145,6 +148,7 @@ pub fn run() {
             commands::dismiss_word,
             commands::upsert_pronunciation,
             commands::delete_pronunciation,
+            commands::move_pronunciation,
             commands::test_pronunciation,
             commands::enqueue,
             commands::cancel_render,

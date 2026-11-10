@@ -52,7 +52,7 @@ where
 
 // ---------- app state & settings ----------
 
-#[derive(Serialize)]
+#[derive(ts_rs::TS, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStateDto {
     settings: Settings,
@@ -63,6 +63,8 @@ pub struct AppStateDto {
     version: String,
     startup_notices: Vec<&'static str>,
     speed_range: speed::SpeedRange,
+    /// The sentence the voice picker previews by default.
+    sample_text: &'static str,
 }
 
 #[tauri::command]
@@ -83,11 +85,14 @@ pub async fn get_app_state(state: St<'_>) -> AppResult<AppStateDto> {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner),
             ),
+            sample_text: SAMPLE_TEXT,
         })
     })
     .await
 }
 
+#[derive(ts_rs::TS)]
+#[ts(optional_fields)]
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SettingsPatch {
@@ -235,7 +240,7 @@ pub async fn import_epub(state: St<'_>, path: PathBuf) -> AppResult<ProjectSumma
     .await
 }
 
-#[derive(Serialize)]
+#[derive(ts_rs::TS, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChapterDetail {
     id: String,
@@ -248,7 +253,7 @@ pub struct ChapterDetail {
     playable: bool,
 }
 
-#[derive(Serialize)]
+#[derive(ts_rs::TS, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDetail {
     project: Project,
@@ -364,6 +369,8 @@ pub async fn get_project(state: St<'_>, id: String) -> AppResult<ProjectDetail> 
     .await
 }
 
+#[derive(ts_rs::TS)]
+#[ts(optional_fields)]
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct MetaPatch {
@@ -375,6 +382,8 @@ struct MetaPatch {
     description: Option<Option<String>>,
 }
 
+#[derive(ts_rs::TS)]
+#[ts(optional_fields)]
 #[derive(Deserialize)]
 struct ChapterPatch {
     id: String,
@@ -382,6 +391,8 @@ struct ChapterPatch {
     included: Option<bool>,
 }
 
+#[derive(ts_rs::TS)]
+#[ts(optional_fields)]
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct ProjectPatch {
@@ -615,6 +626,8 @@ pub async fn dismiss_word(state: St<'_>, id: String, word: String) -> AppResult<
     .await
 }
 
+#[derive(ts_rs::TS)]
+#[ts(rename = "PronScope")]
 #[derive(Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum Scope {
@@ -704,6 +717,42 @@ pub async fn delete_pronunciation(
         edit_prons(&s, scope, project_id.as_deref(), |l| {
             l.retain(|e| e.id != entry_id)
         })
+    })
+    .await
+}
+
+/// Moves a fix between the book's list and the global list; a fix is never left in both.
+/// Returns the global list afterwards.
+#[tauri::command]
+pub async fn move_pronunciation(
+    state: St<'_>,
+    project_id: String,
+    entry_id: String,
+    to: Scope,
+) -> AppResult<Vec<PronEntry>> {
+    let s = state.inner().clone();
+    run(move || {
+        check_id(&project_id)?;
+        ensure_idle(&s, &project_id)?;
+        let from = match to {
+            Scope::Book => Scope::Global,
+            Scope::Global => Scope::Book,
+        };
+        let source = match from {
+            Scope::Global => s.settings().pronunciations,
+            Scope::Book => s.store.load(&project_id)?.pronunciations,
+        };
+        let entry = source
+            .into_iter()
+            .find(|e| e.id == entry_id)
+            .ok_or_else(|| AppError::new("That pronunciation fix no longer exists."))?;
+        edit_prons(&s, to, Some(&project_id), |l| upsert_entry(l, entry))?;
+        let remove = |l: &mut Vec<PronEntry>| l.retain(|x| x.id != entry_id);
+        if let Err(e) = edit_prons(&s, from, Some(&project_id), remove) {
+            let _ = edit_prons(&s, to, Some(&project_id), remove);
+            return Err(e);
+        }
+        Ok(s.settings().pronunciations)
     })
     .await
 }
@@ -850,16 +899,16 @@ pub fn player_seek(state: St<'_>, ms: u64) {
 
 const UPDATE_BUSY: &str = "Pause the queue first to install the update.";
 
-#[derive(Serialize, Clone)]
+#[derive(ts_rs::TS, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
     version: String,
     notes: Option<String>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(ts_rs::TS, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct UpdateProgress {
+pub(crate) struct UpdateProgress {
     downloaded: u64,
     total: Option<u64>,
 }
@@ -997,7 +1046,7 @@ pub async fn clear_project_cache(state: St<'_>, id: String) -> AppResult<()> {
     .await
 }
 
-#[derive(Serialize)]
+#[derive(ts_rs::TS, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageSize {
     /// Saved audio of all books.
@@ -1048,7 +1097,7 @@ pub async fn open_data_dir(state: St<'_>) -> AppResult<()> {
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(ts_rs::TS, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AboutDoc {
     Source,

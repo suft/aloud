@@ -18,8 +18,6 @@
   import { cn } from "$lib/utils";
   import VoiceAvatar from "./VoiceAvatar.svelte";
 
-  const SAMPLE_TEXT =
-    "Once upon a time, in a quiet town by the sea, there lived a girl who loved stories more than anything in the world.";
   const GRADE_ORDER = [
     "A+",
     "A",
@@ -39,7 +37,7 @@
 
   let { book, open = $bindable(false) }: { book: BookView; open?: boolean } = $props();
 
-  let text = $state(SAMPLE_TEXT);
+  let text = $state(app.sampleText);
   let gender = $state("all");
   let accent = $state("all");
   let pendingId = $state<string | null>(null);

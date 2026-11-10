@@ -42,6 +42,8 @@ class AppStore {
   version = $state("");
   screen = $state<Screen>({ name: "library" });
   queueOpen = $state(false);
+  /** The sentence the voice picker previews by default. */
+  sampleText = $state("");
   voices = $state<VoiceInfo[]>([]);
   download = $state<DownloadState>({ variant: null, progress: null, error: null });
   #cancelled = false;
@@ -99,6 +101,7 @@ class AppStore {
     this.models = state.models;
     this.gpuSupported = state.gpuSupported;
     this.version = state.version;
+    this.sampleText = state.sampleText;
     return state;
   }
 
