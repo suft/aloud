@@ -50,7 +50,7 @@ run = "cargo run {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} -p aloud --e
 run = "bun scripts/fetch-models.ts .dev-data/models"
 
 [tasks.e2e]
-run = "cargo run --release -p aloud-core --example aloud -- --data .dev-data --epub .dev-data/alice.epub --chapters 1-2 --out .dev-data/out"
+run = "cargo run --release -p aloud-core --example aloud -- --data .dev-data --epub scripts/fixtures/alice.epub --chapters 1-2 --out .dev-data/out"
 depends = ["models"]
 
 [tasks.smoke]

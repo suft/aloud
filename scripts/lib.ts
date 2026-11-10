@@ -7,10 +7,9 @@ import {
   renameSync,
   statSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import catalog from "../crates/aloud-core/models.json";
 
@@ -31,7 +30,70 @@ export function tarCommand(): string {
     : "tar";
 }
 
-/** Downloads `url` to `dest`, verifying size and sha256. Skips when `dest` already has the right size. */
+const ATTEMPTS = 3;
+const STALL_MS = 30_000;
+
+/** A download failure worth another attempt: network error, 429/5xx, stalled body, short body. */
+class RetryableError extends Error {}
+
+function removeQuietly(path: string) {
+  try {
+    unlinkSync(path);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+}
+
+/** One download attempt into `part`; throws `RetryableError` for failures another attempt may fix. */
+async function download(url: string, part: string, size: number, label: string) {
+  const controller = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(), STALL_MS);
+  };
+  const stalled = () => new RetryableError(`${label}: no data for ${STALL_MS / 1000} s`);
+  arm();
+  try {
+    let res: Response;
+    try {
+      res = await fetch(url, { redirect: "follow", signal: controller.signal });
+    } catch (e) {
+      throw controller.signal.aborted
+        ? stalled()
+        : new RetryableError(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (!res.ok || !res.body) {
+      const message = `${label}: HTTP ${res.status}`;
+      throw res.status >= 500 || res.status === 429
+        ? new RetryableError(message)
+        : new Error(message);
+    }
+    const watchdog = new Transform({
+      transform(chunk, _encoding, done) {
+        arm();
+        done(null, chunk);
+      },
+    });
+    try {
+      await pipeline(Readable.fromWeb(res.body as never), watchdog, createWriteStream(part));
+    } catch (e) {
+      throw controller.signal.aborted
+        ? stalled()
+        : new RetryableError(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  const got = statSync(part).size;
+  if (got !== size) throw new RetryableError(`${label}: size mismatch (${got} != ${size})`);
+}
+
+/**
+ * Downloads `url` to `dest`, verifying size and sha256. An existing `dest` of the right size is
+ * hashed and kept when it matches, and replaced when it doesn't. Network errors, 429/5xx
+ * responses, stalled and short bodies are retried; a checksum mismatch or another HTTP status is not.
+ */
 export async function fetchVerified(
   url: string,
   dest: string,
@@ -40,38 +102,36 @@ export async function fetchVerified(
   label: string,
 ) {
   if (existsSync(dest) && statSync(dest).size === size) {
-    console.log(`${label}: already present`);
-    return;
+    if ((await sha256File(dest)) === sha256) {
+      console.log(`${label}: already present`);
+      return;
+    }
+    console.log(`${label}: the existing file is damaged; downloading again`);
+    unlinkSync(dest);
   }
   mkdirSync(dirname(dest), { recursive: true });
   const part = `${dest}.part`;
-  console.log(`${label}: downloading ${url}`);
-  const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok || !res.body) throw new Error(`${label}: HTTP ${res.status}`);
-  await pipeline(Readable.fromWeb(res.body as never), createWriteStream(part));
-  const got = statSync(part).size;
-  if (got !== size) {
-    unlinkSync(part);
-    throw new Error(`${label}: size mismatch (${got} != ${size})`);
+  for (let attempt = 1; ; attempt++) {
+    console.log(`${label}: downloading ${url}`);
+    try {
+      await download(url, part, size, label);
+      break;
+    } catch (e) {
+      removeQuietly(part);
+      if (!(e instanceof RetryableError) || attempt === ATTEMPTS) throw e;
+      const next = attempt + 1;
+      console.log(
+        `${label}: ${e.message.replace(`${label}: `, "")}; retrying (${next}/${ATTEMPTS})`,
+      );
+      await Bun.sleep(2000 * (next - 1));
+    }
   }
   if ((await sha256File(part)) !== sha256) {
-    unlinkSync(part);
+    removeQuietly(part);
     throw new Error(`${label}: checksum mismatch`);
   }
   renameSync(part, dest);
   console.log(`${label}: ok`);
-}
-
-/** Downloads the public-domain Alice in Wonderland EPUB (dev fixture) unless `dest` exists. */
-export async function ensureAlice(dest: string): Promise<void> {
-  if (existsSync(dest)) return;
-  const res = await fetch("https://www.gutenberg.org/ebooks/11.epub3.images", {
-    redirect: "follow",
-  });
-  if (!res.ok) throw new Error(`alice.epub: HTTP ${res.status}`);
-  mkdirSync(dirname(dest), { recursive: true });
-  writeFileSync(dest, new Uint8Array(await res.arrayBuffer()));
-  console.log("alice.epub: ok");
 }
 
 export const KOKORO_BASE = catalog.baseUrl;

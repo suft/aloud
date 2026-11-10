@@ -4,11 +4,10 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { unzipSync } from "fflate";
 import { chromium, type Page } from "playwright";
-import { ensureAlice } from "../lib.ts";
 import { PLAYER_STATE, type Scenario } from "./alice.ts";
 
 const ROOT = resolve(import.meta.dir, "../..");
-const EPUB = join(ROOT, ".dev-data/alice.epub");
+const EPUB = join(ROOT, "scripts/fixtures/alice.epub");
 const WEB = join(ROOT, ".dev-data/screenshots/web");
 const OUT = join(ROOT, "docs/screenshots");
 
@@ -87,8 +86,6 @@ const SHOTS: Shot[] = [
     },
   },
 ];
-
-await ensureAlice(EPUB);
 
 const cover = Object.entries(
   unzipSync(readFileSync(EPUB), { filter: (f) => /cover\.(jpe?g|png)$/i.test(f.name) }),
