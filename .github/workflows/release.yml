@@ -10,8 +10,20 @@ jobs:
     permissions:
       contents: read
 
+  version:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag matches the version in Cargo.toml
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
+            exit 1
+          fi
+
   release:
-    needs: ci
+    needs: [version, ci]
     permissions:
       contents: write
     strategy:
