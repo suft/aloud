@@ -7,6 +7,7 @@
   import { api, on } from "$lib/api";
   import BookScreen from "$lib/components/BookScreen.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import BootError from "$lib/components/BootError.svelte";
   import Header from "$lib/components/Header.svelte";
   import Library from "$lib/components/Library.svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
@@ -36,11 +37,15 @@
     untrack(() => setMode(theme));
   });
 
-  onMount(() => {
-    void app.boot().then(() => {
+  async function start() {
+    if (await app.boot()) {
       void projects.refresh();
       void update.checkInBackground();
-    });
+    }
+  }
+
+  onMount(() => {
+    void start();
 
     const subscriptions = Promise.all([
       on.renderProgress((p) => render.setProgress(p)),
@@ -98,6 +103,8 @@
           {/if}
         </div>
       {/key}
+    {:else if app.bootError}
+      <BootError onretry={start} />
     {/if}
   </main>
 

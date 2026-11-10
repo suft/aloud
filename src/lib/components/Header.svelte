@@ -32,7 +32,7 @@
     aloud
   </button>
 
-  {#if !onboarding}
+  {#if app.ready && !onboarding}
     <div class="flex items-center gap-1">
       {#if update.available}
         <Button

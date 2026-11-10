@@ -26,6 +26,7 @@ interface DownloadState {
 
 class AppStore {
   ready = $state(false);
+  bootError = $state<string | null>(null);
   #settings = $state<Settings | null>(null);
   models = $state<ModelsStatus>({ standard: false, fast: false, voices: false });
   gpuSupported = $state(false);
@@ -48,16 +49,19 @@ class AppStore {
 
   downloading = $derived(this.download.variant !== null && this.download.error === null);
 
-  async boot() {
+  /** Loads app state; on failure keeps the message in `bootError` and returns false. */
+  async boot(): Promise<boolean> {
+    this.bootError = null;
     try {
       render.boot(await this.refresh());
     } catch (e) {
-      toast.error(errorMessage(e));
-      return;
+      this.bootError = errorMessage(e);
+      return false;
     }
     const m = this.models;
     this.screen = (m.standard || m.fast) && m.voices ? { name: "library" } : { name: "onboarding" };
     this.ready = true;
+    return true;
   }
 
   /** Re-reads settings and voice-pack status from the backend. */
