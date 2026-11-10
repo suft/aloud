@@ -114,3 +114,59 @@ fn exports_chapters_tags_and_duration() {
     assert!(export(&data, &project, &plan, &settings, &|_| {}).is_err());
     assert!(!info.output.with_extension("m4b.part").exists());
 }
+
+#[test]
+fn long_titles_and_more_than_255_chapters_export() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = DataDir::new(dir.path().join("data"));
+    // 301 bytes, with byte 255 inside a multibyte character.
+    let long_title = format!("a{}", "語".repeat(100));
+    let title_of = |i: usize| {
+        if i == 0 {
+            long_title.clone()
+        } else {
+            format!("Chapter {i}")
+        }
+    };
+    let book = Book {
+        meta: BookMeta::default(),
+        chapters: (0..300)
+            .map(|i| BookChapter {
+                id: format!("c{i}"),
+                title: title_of(i),
+                kind: ChapterKind::Body,
+                blocks: vec![Block::Para("x".into())],
+                words: 1,
+            })
+            .collect(),
+    };
+    let settings = Settings {
+        output_dir: dir.path().join("out"),
+        ..Settings::default()
+    };
+    let project = Project::new("proj", "t.epub".into(), &book, &settings);
+
+    let audio = data.project_audio("proj");
+    cache::write_pcm(&audio, &"aa".repeat(16), &tone(0.2)).unwrap();
+    let plan = Plan {
+        inputs_hash: "h".into(),
+        intro: vec![],
+        oov: vec![],
+        chapters: (0..300)
+            .map(|i| PlannedChapter {
+                chapter_id: format!("c{i}"),
+                title: title_of(i),
+                segments: vec![speech("aa"), Segment::Silence { ms: 200 }],
+                units: 10,
+            })
+            .collect(),
+    };
+
+    let info = export(&data, &project, &plan, &settings, &|_| {}).unwrap();
+    let tag = Tag::read_from_path(&info.output).unwrap();
+    assert_eq!(tag.chapter_track().len(), 300);
+    assert_eq!(tag.chapter_list().len(), 255);
+    let expected = format!("a{}", "語".repeat(84));
+    assert_eq!(tag.chapter_track()[0].title, expected);
+    assert_eq!(tag.chapter_list()[0].title, expected);
+}

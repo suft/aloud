@@ -342,6 +342,16 @@ fn fix_esds(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// mp4ameta stores each chapter title length and the `chpl` entry count in one byte.
+const MAX_CHAPTER_TITLE_BYTES: usize = 255;
+/// Chapters beyond this appear only in the chapter track, not in the Nero `chpl` list.
+const MAX_CHPL_CHAPTERS: usize = 255;
+
+fn chapter_title(title: &str) -> String {
+    let end = crate::plan::floor_boundary(title, title.len().min(MAX_CHAPTER_TITLE_BYTES));
+    title[..end].to_string()
+}
+
 fn write_tags(
     data: &DataDir,
     project: &Project,
@@ -382,11 +392,13 @@ fn write_tags(
             tag.set_artwork(Img::jpeg(bytes));
         }
     }
-    for (start, title) in starts {
+    for (n, (start, title)) in starts.iter().enumerate() {
         let at = Duration::from_secs_f64(*start as f64 / SAMPLE_RATE as f64);
-        tag.chapter_list_mut().push(Chapter::new(at, title.clone()));
-        tag.chapter_track_mut()
-            .push(Chapter::new(at, title.clone()));
+        let title = chapter_title(title);
+        if n < MAX_CHPL_CHAPTERS {
+            tag.chapter_list_mut().push(Chapter::new(at, title.clone()));
+        }
+        tag.chapter_track_mut().push(Chapter::new(at, title));
     }
     tag.write_to_path(part).map_err(Error::other)?;
     Ok(())
