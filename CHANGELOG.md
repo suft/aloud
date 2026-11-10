@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0]
+
 ### Fixed
 
 - Reading speed is limited to a safe range everywhere, not only by the slider (#25).
