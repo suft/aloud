@@ -2,7 +2,7 @@
 
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
-use std::sync::LazyLock;
+use std::{borrow::Cow, sync::LazyLock};
 
 use crate::book::Block;
 
@@ -72,8 +72,28 @@ pub struct Doc {
     pub first_image: Option<String>,
 }
 
+static SELF_CLOSING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<([A-Za-z][A-Za-z0-9:_-]*)((?:\s[^<>]*?)?)\s*/>").unwrap());
+const VOID: [&str; 14] = [
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
+];
+
+/// The HTML5 parser ignores `/>` on non-void elements (`<title/>` would swallow the body), so
+/// XHTML's self-closing tags become open+close pairs.
+fn expand_self_closing(html: &str) -> Cow<'_, str> {
+    SELF_CLOSING.replace_all(html, |caps: &regex::Captures| {
+        let name = &caps[1];
+        if VOID.contains(&name.to_ascii_lowercase().as_str()) {
+            caps[0].to_string()
+        } else {
+            format!("<{name}{}></{name}>", &caps[2])
+        }
+    })
+}
+
 pub fn extract(html: &str, book_title: &str) -> Doc {
-    let dom = Html::parse_document(html);
+    let dom = Html::parse_document(&expand_self_closing(html));
     let mut doc = Doc::default();
     let body_sel = Selector::parse("body").unwrap();
     let Some(body) = dom.select(&body_sel).next() else {
@@ -391,5 +411,12 @@ mod tests {
             "T",
         );
         assert_eq!(paras(&d.blocks), vec!["A, b"]);
+    }
+
+    #[test]
+    fn self_closing_title_keeps_the_body() {
+        let html = r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title/></head><body><p>Hello there.</p><p>Line<br/>two.</p></body></html>"#;
+        let d = extract(html, "Book");
+        assert_eq!(paras(&d.blocks), vec!["Hello there.", "Line two."]);
     }
 }

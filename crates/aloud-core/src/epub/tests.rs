@@ -341,3 +341,21 @@ fn deep_nesting_is_ignored_not_fatal() {
         );
     }
 }
+
+#[test]
+fn chapters_with_self_closing_title_import() {
+    let doc = |h: &str| {
+        format!(
+            r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><title/></head><body><h1>{h}</h1><p>Text {h}.</p></body></html>"#
+        )
+        .into_bytes()
+    };
+    let bytes = epub_with(
+        &[("one.xhtml", "One"), ("two.xhtml", "Two")],
+        &[("one.xhtml", doc("One")), ("two.xhtml", doc("Two"))],
+    );
+    let (_d, data, r) = import_bytes(&bytes);
+    let book = ProjectStore::new(data).book(&r.unwrap().id).unwrap();
+    let titles: Vec<_> = book.chapters.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(titles, ["One", "Two"]);
+}
