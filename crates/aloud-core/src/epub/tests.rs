@@ -228,3 +228,116 @@ fn covers_must_be_small_images() {
     fs::write(&ok, cover_png()).unwrap();
     set_cover(&data, &mut project, &ok).unwrap_or_else(|e| panic!("{e}"));
 }
+
+/// A minimal EPUB: `docs` are `OEBPS/` files in spine order, `nav` the `(href, label)` TOC.
+fn epub_with(nav: &[(&str, &str)], docs: &[(&str, Vec<u8>)]) -> Vec<u8> {
+    let items: String = docs
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _))| {
+            format!(r#"<item id="d{i}" href="{name}" media-type="application/xhtml+xml"/>"#)
+        })
+        .collect();
+    let spine: String = (0..docs.len())
+        .map(|i| format!(r#"<itemref idref="d{i}"/>"#))
+        .collect();
+    let opf = format!(
+        r#"<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+ <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test Book</dc:title><dc:language>en</dc:language></metadata>
+ <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>{items}</manifest>
+ <spine>{spine}</spine>
+</package>"#
+    );
+    let toc: String = nav
+        .iter()
+        .map(|(href, label)| format!(r#"<li><a href="{href}">{label}</a></li>"#))
+        .collect();
+    let nav_doc = xhtml(&format!(r#"<nav epub:type="toc"><ol>{toc}</ol></nav>"#));
+
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    let opts = SimpleFileOptions::default();
+    let mut add = |name: &str, bytes: &[u8]| {
+        zip.start_file(name, opts).unwrap();
+        zip.write_all(bytes).unwrap();
+    };
+    add("mimetype", b"application/epub+zip");
+    add(
+        "META-INF/container.xml",
+        br#"<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#,
+    );
+    add("OEBPS/content.opf", opf.as_bytes());
+    add("OEBPS/nav.xhtml", nav_doc.as_bytes());
+    for (name, bytes) in docs {
+        add(&format!("OEBPS/{name}"), bytes);
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+#[test]
+fn oversized_epub_file_is_rejected_before_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = DataDir::new(dir.path().join("data"));
+    let big = dir.path().join("big.epub");
+    fs::File::create(&big)
+        .unwrap()
+        .set_len(MAX_EPUB_BYTES + 1)
+        .unwrap();
+    assert!(matches!(
+        import(&data, &big),
+        Err(Error::Import(ImportError::TooLarge))
+    ));
+}
+
+#[test]
+fn inflation_bomb_is_rejected() {
+    let bomb = format!("<p>{}</p>", " ".repeat(MAX_ENTRY_BYTES as usize + 1));
+    let bytes = epub_with(
+        &[("bomb.xhtml", "Bomb"), ("ok.xhtml", "Ok")],
+        &[
+            ("bomb.xhtml", xhtml(&bomb).into_bytes()),
+            (
+                "ok.xhtml",
+                xhtml("<h1>Ok</h1><p>Normal text.</p>").into_bytes(),
+            ),
+        ],
+    );
+    let (_d, _data, r) = import_bytes(&bytes);
+    assert!(matches!(r, Err(Error::Import(ImportError::TooLarge))));
+}
+
+#[test]
+fn deep_nesting_is_ignored_not_fatal() {
+    let depth = 10_000;
+    let deep = format!(
+        "{}<p>Deep text.</p>{}",
+        "<div>".repeat(depth),
+        "</div>".repeat(depth)
+    );
+    let bytes = epub_with(
+        &[("deep.xhtml", "One"), ("two.xhtml", "Two")],
+        &[
+            ("deep.xhtml", xhtml(&deep).into_bytes()),
+            (
+                "two.xhtml",
+                xhtml("<h1>Two</h1><p>Normal text.</p>").into_bytes(),
+            ),
+        ],
+    );
+    // A small stack: the walk must stop on its own, not rely on the main thread's.
+    let (_d, data, r) = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || import_bytes(&bytes))
+        .unwrap()
+        .join()
+        .unwrap();
+    let book = ProjectStore::new(data).book(&r.unwrap().id).unwrap();
+    assert!(!book.chapters.is_empty());
+    for ch in &book.chapters {
+        assert!(
+            !ch.blocks
+                .iter()
+                .any(|b| matches!(b, Block::Para(t) if t.contains("Deep text")))
+        );
+    }
+}

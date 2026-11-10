@@ -33,7 +33,14 @@ pub enum ImportError {
     NoText,
     #[error("{}", crate::error::io_message(.0))]
     Io(#[from] io::Error),
+    #[error("This book is too large for Aloud to open.")]
+    TooLarge,
 }
+
+pub(crate) const MAX_EPUB_BYTES: u64 = 1024 * 1024 * 1024;
+pub(crate) const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+pub(crate) const MAX_INFLATED_BYTES: u64 = 512 * 1024 * 1024;
+pub(crate) const MAX_ENTRIES: usize = 20_000;
 
 static FRONT_TITLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -59,7 +66,12 @@ const FONT_OBFUSCATION: &[&str] = &[
     "http://ns.adobe.com/pdf/enc#RC",
 ];
 
-type Zip = ZipArchive<Cursor<Vec<u8>>>;
+/// An EPUB held in memory, with a running total of the bytes inflated from it.
+struct Zip {
+    archive: ZipArchive<Cursor<Vec<u8>>>,
+    inflated: u64,
+    too_large: bool,
+}
 
 #[derive(Debug, Clone)]
 struct Item {
@@ -77,17 +89,30 @@ struct Opf {
     cover_meta_id: Option<String>,
 }
 
+/// Reads an entry (exact name first, then case-insensitive), inflating at most `MAX_ENTRY_BYTES`
+/// and `MAX_INFLATED_BYTES` in total. Going over a limit sets `zip.too_large` and yields `None`.
 fn read_entry(zip: &mut Zip, name: &str) -> Option<Vec<u8>> {
+    let index = zip.archive.index_for_name(name).or_else(|| {
+        let found = zip
+            .archive
+            .file_names()
+            .find(|n| n.eq_ignore_ascii_case(name))
+            .map(str::to_string)?;
+        zip.archive.index_for_name(&found)
+    })?;
+    let limit = MAX_ENTRY_BYTES.min(MAX_INFLATED_BYTES.saturating_sub(zip.inflated));
     let mut buf = Vec::new();
-    if let Ok(mut f) = zip.by_name(name) {
-        f.read_to_end(&mut buf).ok()?;
-        return Some(buf);
+    zip.archive
+        .by_index(index)
+        .ok()?
+        .take(limit + 1)
+        .read_to_end(&mut buf)
+        .ok()?;
+    zip.inflated += buf.len() as u64;
+    if buf.len() as u64 > limit {
+        zip.too_large = true;
+        return None;
     }
-    let found = zip
-        .file_names()
-        .find(|n| n.eq_ignore_ascii_case(name))
-        .map(str::to_string)?;
-    zip.by_name(&found).ok()?.read_to_end(&mut buf).ok()?;
     Some(buf)
 }
 
@@ -364,8 +389,19 @@ struct Parsed {
 }
 
 fn parse_epub(bytes: Vec<u8>, fallback_title: &str) -> std::result::Result<Parsed, ImportError> {
-    let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(|_| ImportError::NotEpub)?;
+    let archive = ZipArchive::new(Cursor::new(bytes)).map_err(|_| ImportError::NotEpub)?;
+    if archive.len() > MAX_ENTRIES {
+        return Err(ImportError::TooLarge);
+    }
+    let mut zip = Zip {
+        archive,
+        inflated: 0,
+        too_large: false,
+    };
     check_drm(&mut zip)?;
+    if zip.too_large {
+        return Err(ImportError::TooLarge);
+    }
 
     let container = read_text(&mut zip, "META-INF/container.xml").ok_or(ImportError::NotEpub)?;
     let opf_path = {
@@ -448,6 +484,9 @@ fn parse_epub(bytes: Vec<u8>, fallback_title: &str) -> std::result::Result<Parse
         }
     }
 
+    if zip.too_large {
+        return Err(ImportError::TooLarge);
+    }
     if !chapters
         .iter()
         .any(|c| c.kind == ChapterKind::Body && c.words > 0)
@@ -475,8 +514,12 @@ pub fn import(data: &DataDir, epub_path: &Path) -> Result<ProjectSummary> {
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("epub"));
-    if !is_epub || !fs::metadata(epub_path).map_err(ImportError::Io)?.is_file() {
+    let meta = fs::metadata(epub_path).map_err(ImportError::Io)?;
+    if !is_epub || !meta.is_file() {
         return Err(ImportError::NotEpub.into());
+    }
+    if meta.len() > MAX_EPUB_BYTES {
+        return Err(ImportError::TooLarge.into());
     }
     let bytes = fs::read(epub_path).map_err(ImportError::Io)?;
     let id: String = blake3::hash(&bytes).to_hex()[..16].to_string();

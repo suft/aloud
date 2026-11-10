@@ -59,6 +59,9 @@ const BLOCKISH: &[&str] = &[
     "body",
 ];
 
+/// Elements nested deeper than this are ignored, so hostile markup can't overflow the stack.
+const MAX_DEPTH: usize = 256;
+
 /// What the walk learned about one document.
 #[derive(Debug, Default)]
 pub struct Doc {
@@ -94,7 +97,7 @@ pub fn extract(html: &str, book_title: &str) -> Doc {
     });
 
     let mut raw = Vec::new();
-    handle(body, &mut raw);
+    handle(body, &mut raw, 0);
     doc.blocks = finish_blocks(raw, book_title);
     doc
 }
@@ -161,11 +164,14 @@ fn has_direct_text(el: ElementRef) -> bool {
 /// Text of an element with no separators at inline tag boundaries.
 fn text_of(el: ElementRef) -> String {
     let mut out = String::new();
-    collect_text(el, is_small_caps(el), &mut out);
+    collect_text(el, is_small_caps(el), &mut out, 0);
     out
 }
 
-fn collect_text(el: ElementRef, small_caps: bool, out: &mut String) {
+fn collect_text(el: ElementRef, small_caps: bool, out: &mut String, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
     for child in el.children() {
         if let Some(t) = child.value().as_text() {
             if small_caps {
@@ -186,7 +192,7 @@ fn collect_text(el: ElementRef, small_caps: bool, out: &mut String) {
             if block {
                 out.push(' ');
             }
-            collect_text(e, small_caps || is_small_caps(e), out);
+            collect_text(e, small_caps || is_small_caps(e), out, depth + 1);
             if block {
                 out.push(' ');
             }
@@ -195,8 +201,8 @@ fn collect_text(el: ElementRef, small_caps: bool, out: &mut String) {
 }
 
 /// Raw walk output: blocks before cleaning rules that need whole-chapter context.
-fn handle(el: ElementRef, out: &mut Vec<Block>) {
-    if skip_element(el) {
+fn handle(el: ElementRef, out: &mut Vec<Block>, depth: usize) {
+    if depth > MAX_DEPTH || skip_element(el) {
         return;
     }
     let name = el.value().name();
@@ -240,7 +246,7 @@ fn handle(el: ElementRef, out: &mut Vec<Block>) {
         emit_para(&text(), out);
     } else {
         for child in el.children().filter_map(ElementRef::wrap) {
-            handle(child, out);
+            handle(child, out, depth + 1);
         }
     }
 }
