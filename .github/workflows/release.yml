@@ -31,6 +31,9 @@ jobs:
             libasound2-dev libclang-dev libc++-dev libc++abi-dev build-essential libssl-dev
       - uses: jdx/mise-action@v5
       - uses: Swatinem/rust-cache@v2
+        with:
+          # cmake-rs bakes the cmake binary path into build dirs; a toolchain bump must not reuse them.
+          key: ${{ hashFiles('mise.toml') }}
       - run: mise run setup
       - uses: tauri-apps/tauri-action@v1
         env:
