@@ -29,7 +29,7 @@ sha2 = "0.10"
 num_cpus = "1"
 keepawake = "0.5"
 thiserror = "2"
-tracing = "0.1"
+tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1", features = ["v4"] }
 dirs = "6"
 

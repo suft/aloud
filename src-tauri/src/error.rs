@@ -16,13 +16,14 @@ impl AppError {
 
 impl From<aloud_core::Error> for AppError {
     fn from(e: aloud_core::Error) -> Self {
+        log::warn!("{e:?}");
         AppError::new(e.to_string())
     }
 }
 
 impl From<std::io::Error> for AppError {
     fn from(e: std::io::Error) -> Self {
-        AppError::new(e.to_string())
+        aloud_core::Error::from(e).into()
     }
 }
 

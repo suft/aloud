@@ -31,7 +31,7 @@ pub enum ImportError {
     Drm,
     #[error("No readable text was found in this book.")]
     NoText,
-    #[error("{0}")]
+    #[error("{}", crate::error::io_message(.0))]
     Io(#[from] io::Error),
 }
 

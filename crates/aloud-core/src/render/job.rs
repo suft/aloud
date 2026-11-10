@@ -127,7 +127,11 @@ impl Layout {
 
 impl RenderService {
     pub(super) fn run_job(&self, id: &str, cancel: &AtomicBool) -> JobEnd {
-        match self.try_job(id, cancel) {
+        let r = self.try_job(id, cancel);
+        if let Err(e) = &r {
+            tracing::warn!("render job {id} failed: {e:?}");
+        }
+        match r {
             Ok(end) => end,
             Err(e) if e.is_storage_full() => JobEnd::DiskFull,
             Err(Error::Invalid(m)) => JobEnd::Failed(m),
