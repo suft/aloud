@@ -38,6 +38,7 @@ impl RenderService {
         speed: f32,
         text: &str,
     ) -> Result<Vec<f32>> {
+        let speed = crate::speed::clamp(speed);
         let settings = Settings::load(&self.data)?;
         let text: String = text.chars().take(MAX_TEXT_CHARS).collect();
         let book_prons = match project_id {

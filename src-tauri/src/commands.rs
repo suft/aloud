@@ -11,7 +11,7 @@ use aloud_core::{
     queue::QueueState,
     render::{Direction, Phase, RenderProgress, cache},
     settings::{ModelVariant, Performance, Settings, Theme},
-    tts,
+    speed, tts,
     update::UpdateState,
     voices::{self, VoiceInfo},
 };
@@ -60,6 +60,7 @@ pub struct AppStateDto {
     gpu_supported: bool,
     version: String,
     startup_notices: Vec<&'static str>,
+    speed_range: speed::SpeedRange,
 }
 
 #[tauri::command]
@@ -72,6 +73,7 @@ pub async fn get_app_state(state: St<'_>) -> AppResult<AppStateDto> {
             queue: s.render.queue(),
             active: s.render.active(),
             gpu_supported: tts::gpu_supported(),
+            speed_range: speed::RANGE,
             version: s.app.package_info().version.to_string(),
             startup_notices: std::mem::take(
                 &mut *s
@@ -137,7 +139,7 @@ pub async fn update_settings(state: St<'_>, patch: SettingsPatch) -> AppResult<S
                 c.default_voice = v;
             }
             if let Some(v) = patch.default_speed {
-                c.default_speed = v.clamp(0.5, 2.0);
+                c.default_speed = speed::clamp(v);
             }
             if let Some(v) = patch.theme {
                 c.theme = v;
@@ -450,7 +452,7 @@ pub async fn update_project(
                 p.voice = v;
             }
             if let Some(v) = patch.speed {
-                p.speed = (v.clamp(0.5, 2.0) * 100.0).round() / 100.0;
+                p.speed = (speed::clamp(v) * 100.0).round() / 100.0;
             }
             if let Some(v) = patch.intro {
                 p.intro = v;

@@ -17,6 +17,7 @@ pub mod pron;
 pub mod queue;
 pub mod render;
 pub mod settings;
+pub mod speed;
 pub mod tts;
 pub mod update;
 pub mod voices;

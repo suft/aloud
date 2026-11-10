@@ -21,7 +21,7 @@ use crate::{
     project::Project,
     pron::{self, Dictionary, SayAs},
     settings::{ModelVariant, Settings},
-    tts,
+    speed, tts,
 };
 
 pub const PLAN_VERSION: u32 = 1;
@@ -229,7 +229,11 @@ pub fn build_plan(
 ) -> Result<Plan> {
     let dict = Dictionary::new(&settings.pronunciations, &project.pronunciations);
     let dialect = Dialect::for_voice(&project.voice);
-    let (model, voice, speed) = (settings.model, project.voice.as_str(), project.speed);
+    let (model, voice, speed) = (
+        settings.model,
+        project.voice.as_str(),
+        speed::clamp(project.speed),
+    );
     let heading_speed = speed * HEADING_SPEED;
     let titles: HashMap<&str, &str> = project
         .chapters

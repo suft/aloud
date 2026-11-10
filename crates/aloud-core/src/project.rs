@@ -89,7 +89,7 @@ impl Project {
                 })
                 .collect(),
             voice: settings.default_voice.clone(),
-            speed: settings.default_speed,
+            speed: crate::speed::clamp(settings.default_speed),
             intro: true,
             pronunciations: Vec::new(),
             dismissed_words: Vec::new(),

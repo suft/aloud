@@ -8,6 +8,7 @@ import {
   type ModelVariant,
   type Settings,
   type SettingsPatch,
+  type SpeedRange,
   type VoiceInfo,
 } from "$lib/api";
 import { render } from "./render.svelte";
@@ -35,6 +36,7 @@ class AppStore {
   ready = $state(false);
   bootError = $state<string | null>(null);
   #settings = $state<Settings | null>(null);
+  #speedRange = $state<SpeedRange | null>(null);
   models = $state<ModelsStatus>({ standard: false, fast: false, voices: false });
   gpuSupported = $state(false);
   version = $state("");
@@ -48,6 +50,12 @@ class AppStore {
   get settings(): Settings {
     if (!this.#settings) throw new Error("settings are not loaded yet");
     return this.#settings;
+  }
+
+  /** Valid once `ready` is true. */
+  get speedRange(): SpeedRange {
+    if (!this.#speedRange) throw new Error("speed range is not loaded yet");
+    return this.#speedRange;
   }
 
   set settings(value: Settings) {
@@ -82,6 +90,7 @@ class AppStore {
   async refresh(): Promise<AppStateDto> {
     const state = await api.getAppState();
     this.#settings = state.settings;
+    this.#speedRange = state.speedRange;
     this.models = state.models;
     this.gpuSupported = state.gpuSupported;
     this.version = state.version;

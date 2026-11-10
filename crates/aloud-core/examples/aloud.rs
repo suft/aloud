@@ -214,7 +214,7 @@ fn main() {
     }
     project.voice = args.voice.clone();
     if let Some(s) = args.speed {
-        project.speed = s;
+        project.speed = aloud_core::speed::clamp(s);
     }
     for p in &args.prons {
         if let Some((word, say)) = p.split_once('=') {

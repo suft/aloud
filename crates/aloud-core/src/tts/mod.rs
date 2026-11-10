@@ -130,6 +130,11 @@ pub trait Synth {
 
 impl Synth for Engine {
     fn synth(&mut self, phonemes: &str, voice: &str, speed: f32) -> Result<Vec<f32>> {
+        if !(speed.is_finite() && speed > 0.0) {
+            return Err(Error::Invalid(format!(
+                "Reading speed must be a positive number, not {speed}."
+            )));
+        }
         let vocab = vocab();
         let mut tokens: Vec<i64> = vec![0];
         tokens.extend(phonemes.chars().filter_map(|c| vocab.get(&c).copied()));

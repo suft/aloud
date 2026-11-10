@@ -166,8 +166,8 @@
           <Slider
             type="single"
             value={speed}
-            min={0.8}
-            max={1.3}
+            min={app.speedRange.uiMin}
+            max={app.speedRange.uiMax}
             step={0.05}
             disabled={book.locked}
             aria-label="Reading speed"

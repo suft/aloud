@@ -184,12 +184,20 @@ export interface PlayerState {
   playing: boolean;
 }
 
+export interface SpeedRange {
+  min: number;
+  max: number;
+  uiMin: number;
+  uiMax: number;
+}
+
 export interface AppStateDto {
   settings: Settings;
   models: ModelsStatus;
   queue: QueueState;
   active: RenderProgress | null;
   gpuSupported: boolean;
+  speedRange: SpeedRange;
   version: string;
   startupNotices: string[];
 }
