@@ -647,23 +647,29 @@ pub fn import(data: &DataDir, epub_path: &Path) -> Result<ProjectSummary> {
 
     let dir = data.project(&id);
     fs::create_dir_all(&dir)?;
-    if let Some(bytes) = cover
-        && let Some(p) = cover::prepare(&bytes)
-    {
-        fsx::write_atomic(&dir.join(p.name), &p.bytes)?;
-        book.meta.cover_file = Some(p.name.to_string());
-        book.meta.accent = p.accent;
+    let imported = || -> Result<ProjectSummary> {
+        if let Some(bytes) = cover
+            && let Some(p) = cover::prepare(&bytes)
+        {
+            fsx::write_atomic(&dir.join(p.name), &p.bytes)?;
+            book.meta.cover_file = Some(p.name.to_string());
+            book.meta.accent = p.accent;
+        }
+        store.save_book(&id, &book)?;
+        let file_name = epub_path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut project = Project::new(&id, file_name, &book, &settings);
+        project.status = ProjectStatus::Draft;
+        // project.json is written last: its presence marks a complete import.
+        store.save(&mut project)?;
+        Ok(store.summary(&project, &settings))
+    }();
+    if imported.is_err() {
+        let _ = fs::remove_dir_all(&dir);
     }
-    store.save_book(&id, &book)?;
-    let file_name = epub_path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let mut project = Project::new(&id, file_name, &book, &settings);
-    project.status = ProjectStatus::Draft;
-    // project.json is written last: its presence marks a complete import.
-    store.save(&mut project)?;
-    Ok(store.summary(&project, &settings))
+    imported
 }
 
 const COVER_MAX_BYTES: u64 = 50 * 1024 * 1024;

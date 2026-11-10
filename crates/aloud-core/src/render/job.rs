@@ -310,6 +310,10 @@ impl RenderService {
             };
             Ok::<_, Error>(true)
         })?;
+        let removed = cache::prune(&audio_dir, &plan.speech_keys());
+        if removed > 0 {
+            tracing::info!("removed {removed} unused audio parts of {id}");
+        }
         self.events.project_changed(id);
         Ok(JobEnd::Done(info))
     }

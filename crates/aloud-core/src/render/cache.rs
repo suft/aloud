@@ -47,12 +47,52 @@ pub fn write_pcm(audio_dir: &Path, key: &str, samples: &[f32]) -> io::Result<()>
         let v = (x.clamp(-1.0, 1.0) * 32767.0).round() as i16;
         bytes.extend_from_slice(&v.to_le_bytes());
     }
-    let mut f = fs::File::create(&tmp)?;
-    f.write_all(&bytes)?;
-    f.flush()?;
-    f.sync_all()?;
-    drop(f);
-    fs::rename(&tmp, &path)
+    let write = || -> io::Result<()> {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(&bytes)?;
+        f.flush()?;
+        f.sync_all()?;
+        drop(f);
+        fs::rename(&tmp, &path)
+    };
+    write().inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
+}
+
+/// Every `<dir>/<xx>/<key>.pcm` with its metadata; unreadable entries are skipped.
+fn pcm_files(dir: &Path) -> Vec<(PathBuf, fs::Metadata)> {
+    let Ok(shards) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    shards
+        .flatten()
+        .filter_map(|shard| fs::read_dir(shard.path()).ok())
+        .flat_map(|files| files.flatten())
+        .filter_map(|f| {
+            let path = f.path();
+            if path.extension()? != "pcm" {
+                return None;
+            }
+            let meta = f.metadata().ok()?;
+            meta.is_file().then_some((path, meta))
+        })
+        .collect()
+}
+
+/// Removes cached segments whose key isn't in `keep`; returns how many.
+pub fn prune(audio_dir: &Path, keep: &HashSet<&str>) -> u64 {
+    let mut removed = 0;
+    for (path, _) in pcm_files(audio_dir) {
+        let stale = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|key| !keep.contains(key));
+        if stale && fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 pub fn read_pcm(audio_dir: &Path, key: &str) -> io::Result<Vec<f32>> {
@@ -130,5 +170,17 @@ mod tests {
         assert!(len_samples(dir.path(), &key).is_err());
         set_len(0);
         assert!(!exists(dir.path(), &key));
+    }
+
+    #[test]
+    fn prune_keeps_only_listed_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = ("aa".repeat(16), "bb".repeat(16));
+        write_pcm(dir.path(), &a, &[0.1]).unwrap();
+        write_pcm(dir.path(), &b, &[0.1]).unwrap();
+        let keep: HashSet<&str> = [a.as_str()].into();
+        assert_eq!(prune(dir.path(), &keep), 1);
+        assert!(exists(dir.path(), &a));
+        assert!(!exists(dir.path(), &b));
     }
 }

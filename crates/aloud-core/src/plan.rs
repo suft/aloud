@@ -72,6 +72,18 @@ pub struct SeqChapter<'a> {
 }
 
 impl Plan {
+    /// Every speech key of the intro and all chapters, included or not.
+    pub fn speech_keys(&self) -> HashSet<&str> {
+        self.intro
+            .iter()
+            .chain(self.chapters.iter().flat_map(|c| &c.segments))
+            .filter_map(|s| match s {
+                Segment::Speech { key, .. } => Some(key.as_str()),
+                Segment::Silence { .. } => None,
+            })
+            .collect()
+    }
+
     /// Included chapters in book order; the intro is placed at the start of the first of them.
     pub fn sequence(&self, included: &HashSet<String>) -> Vec<SeqChapter<'_>> {
         let mut out: Vec<SeqChapter> = self

@@ -14,7 +14,61 @@ use crate::{
 
 /// Runs once at startup, before the render scheduler or any import can create files.
 pub fn sweep(data: &DataDir) {
+    remove_failed_imports(data);
+    remove_temp_files(data);
     remove_stale_parts(data);
+}
+
+fn is_temp(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == "tmp")
+}
+
+/// Deletes the `*.tmp` files directly inside `dir`.
+fn remove_temp_files_in(dir: &Path) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|t| t.is_file()) && is_temp(&path) {
+            remove_file(&path);
+        }
+    }
+}
+
+fn subdirs(dir: &Path) -> Vec<PathBuf> {
+    let Ok(rd) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    rd.flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| e.path())
+        .collect()
+}
+
+/// Atomic writes that were killed half way leave `*.tmp` files behind.
+fn remove_temp_files(data: &DataDir) {
+    remove_temp_files_in(data.root());
+    for id in project_ids(data) {
+        remove_temp_files_in(&data.project(&id));
+        for shard in subdirs(&data.project_audio(&id)) {
+            remove_temp_files_in(&shard);
+        }
+    }
+    for shard in subdirs(&data.previews()) {
+        remove_temp_files_in(&shard);
+    }
+}
+
+/// `project.json` is written last, so a project directory without one is a failed import.
+fn remove_failed_imports(data: &DataDir) {
+    for id in project_ids(data) {
+        let dir = data.project(&id);
+        if dir.is_dir() && !dir.join("project.json").exists() {
+            match fs::remove_dir_all(&dir) {
+                Ok(()) => tracing::info!("removed unfinished import {}", dir.display()),
+                Err(e) => tracing::warn!("couldn't remove {}: {e}", dir.display()),
+            }
+        }
+    }
 }
 
 fn project_ids(data: &DataDir) -> Vec<String> {
@@ -90,6 +144,19 @@ mod tests {
     use super::*;
     use crate::book::{Book, BookMeta};
 
+    fn save_project(data: &DataDir, settings: &Settings, id: &str) {
+        let book = Book {
+            meta: BookMeta {
+                title: "Tone".into(),
+                authors: vec!["Jane".into()],
+                ..Default::default()
+            },
+            chapters: vec![],
+        };
+        let mut project = crate::project::Project::new(id, "t.epub".into(), &book, settings);
+        ProjectStore::new(data.clone()).save(&mut project).unwrap();
+    }
+
     #[test]
     fn stale_parts_are_removed() {
         let dir = tempfile::tempdir().unwrap();
@@ -100,17 +167,7 @@ mod tests {
             ..Settings::default()
         };
         settings.save(&data).unwrap();
-        let book = Book {
-            meta: BookMeta {
-                title: "Tone".into(),
-                authors: vec!["Jane".into()],
-                ..Default::default()
-            },
-            chapters: vec![],
-        };
-        let mut project =
-            crate::project::Project::new("0000000000000001", "t.epub".into(), &book, &settings);
-        ProjectStore::new(data.clone()).save(&mut project).unwrap();
+        save_project(&data, &settings, "0000000000000001");
 
         fs::create_dir_all(&out).unwrap();
         for name in [
@@ -126,5 +183,51 @@ mod tests {
         assert!(!out.join("Tone - Jane (2).m4b.part").exists());
         assert!(out.join("Other.m4b.part").exists());
         assert!(out.join("Tone - Jane.m4b").exists());
+    }
+
+    #[test]
+    fn temp_files_and_failed_imports_are_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path().join("data"));
+        let settings = Settings {
+            output_dir: dir.path().join("out"),
+            ..Settings::default()
+        };
+        settings.save(&data).unwrap();
+        let id = "0000000000000001";
+        save_project(&data, &settings, id);
+
+        let key = "ab".repeat(16);
+        let shard = data.project_audio(id).join("ab");
+        let preview_shard = data.previews().join("bb");
+        let orphan = data.project("0000000000000002");
+        fs::create_dir_all(&shard).unwrap();
+        fs::create_dir_all(&preview_shard).unwrap();
+        fs::create_dir_all(&orphan).unwrap();
+        fs::write(orphan.join("book.json"), b"{}").unwrap();
+        let temps = [
+            data.root().join("settings.json.abc.tmp"),
+            data.project(id).join("project.json.x.tmp"),
+            shard.join(format!("{key}.pcm.tmp")),
+            preview_shard.join(format!("{key}.pcm.tmp")),
+        ];
+        let keep = [
+            data.root().join("settings.json"),
+            data.project(id).join("project.json"),
+            shard.join(format!("{key}.pcm")),
+        ];
+        for t in &temps {
+            fs::write(t, b"x").unwrap();
+        }
+        fs::write(&keep[2], b"xx").unwrap();
+
+        sweep(&data);
+        for t in &temps {
+            assert!(!t.exists(), "{} should be gone", t.display());
+        }
+        assert!(!orphan.exists());
+        for k in &keep {
+            assert!(k.exists(), "{} should remain", k.display());
+        }
     }
 }

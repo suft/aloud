@@ -26,6 +26,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Audiobook file names stay within the file-name length limit, avoid names Windows reserves, and drop invisible direction characters (#22).
 - A finished audiobook is written to disk before it appears, and half-written `.m4b.part` files left by a crash are cleaned up when Aloud starts (#21).
 - Changing a book's cover keeps the old one if the new one can't be saved, and covers are decoded once (#23).
+- Saved audio that no longer belongs to a book (after a voice or text change), leftover temporary files and half-finished imports are cleaned up (#29).
 
 ## [0.1.0]
 

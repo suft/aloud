@@ -342,6 +342,32 @@ fn truncated_cache_file_is_rendered_again() {
 }
 
 #[test]
+fn changing_voice_drops_the_old_audio() {
+    let (_dir, data) = fixture(&["book"], 10);
+    let (svc, _, rx) = service(&data, Duration::ZERO);
+    svc.enqueue("book").unwrap();
+    rx.recv_timeout(TIMEOUT).unwrap().1.expect("render failed");
+    svc.wait_idle(Duration::from_secs(5));
+    let old = unique_speech(&svc, "book");
+
+    svc.store()
+        .update("book", |p| {
+            p.voice = "am_adam".into();
+            Ok::<_, Error>(true)
+        })
+        .unwrap();
+    svc.enqueue("book").unwrap();
+    rx.recv_timeout(TIMEOUT).unwrap().1.expect("render failed");
+    svc.wait_idle(Duration::from_secs(5));
+
+    let audio = data.project_audio("book");
+    let new = unique_speech(&svc, "book");
+    assert!(old.is_disjoint(&new));
+    assert_eq!(pcm_count(&audio), new.len());
+    assert!(old.iter().all(|k| !cache::exists(&audio, k)));
+}
+
+#[test]
 fn pause_keeps_finished_parts_and_resume_renders_only_the_rest() {
     let (_dir, data) = fixture(&["book"], 40);
     let (svc, calls, rx) = service(&data, Duration::from_millis(50));
