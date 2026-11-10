@@ -8,7 +8,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, RecvTimeoutError, Sender},
     },
     time::Duration,
@@ -16,6 +16,8 @@ use std::{
 use tauri::{AppHandle, Emitter};
 
 const TICK: Duration = Duration::from_millis(250);
+/// Consecutive ticks (2 s) without the output consuming samples before playback counts as stalled.
+const STALL_TICKS: u32 = 8;
 
 /// One piece of a chapter's audio, in playback order.
 #[derive(Debug, Clone)]
@@ -188,6 +190,42 @@ impl Source for ChapterSource {
     }
 }
 
+/// An open output stream, plus whether the backend has reported that the device went away.
+struct Output {
+    sink: MixerDeviceSink,
+    lost: Arc<AtomicBool>,
+}
+
+fn device_gone(kind: rodio::CpalErrorKind) -> bool {
+    use rodio::CpalErrorKind::*;
+    matches!(
+        kind,
+        DeviceChanged
+            | DeviceNotAvailable
+            | HostUnavailable
+            | StreamInvalidated
+            | BackendError
+            | Other
+    )
+}
+
+fn open_output() -> Option<Output> {
+    let lost = Arc::new(AtomicBool::new(false));
+    let flag = lost.clone();
+    let on_error = move |e: rodio::CpalError| {
+        log::warn!("audio output error: {e}");
+        if device_gone(e.kind()) {
+            flag.store(true, Ordering::SeqCst);
+        }
+    };
+    // The fallback keeps rodio's search for a non-default device; only the stall watchdog covers it.
+    let sink = rodio::DeviceSinkBuilder::from_default_device()
+        .and_then(|b| b.with_error_callback(on_error).open_stream())
+        .or_else(|_| rodio::DeviceSinkBuilder::open_default_sink())
+        .ok()?;
+    Some(Output { sink, lost })
+}
+
 struct Loaded {
     project_id: Option<String>,
     chapter_id: Option<String>,
@@ -198,11 +236,19 @@ struct Loaded {
     consumed: Arc<AtomicU64>,
     sink: Sink,
     finished: bool,
+    /// The audio device went away; the sink is closed and `Toggle` restarts at the current position.
+    orphaned: bool,
+    last_consumed: u64,
+    stalled: u32,
 }
 
 impl Loaded {
     fn position_ms(&self) -> u64 {
         samples_to_ms((self.start + self.consumed.load(Ordering::Relaxed)).min(self.total))
+    }
+
+    fn playing(&self) -> bool {
+        !self.finished && !self.orphaned && !self.sink.is_paused()
     }
 
     fn state(&self) -> PlayerState {
@@ -216,13 +262,13 @@ impl Loaded {
                 self.position_ms()
             },
             duration_ms: samples_to_ms(self.total),
-            playing: !self.finished && !self.sink.is_paused(),
+            playing: self.playing(),
         }
     }
 }
 
 fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
-    let mut device: Option<MixerDeviceSink> = None;
+    let mut device: Option<Output> = None;
     let mut loaded: Option<Loaded> = None;
     let emit = |l: &Option<Loaded>| {
         let state = match l {
@@ -239,23 +285,27 @@ fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
         let _ = app.emit("player-state", state);
     };
 
-    let start = |device: &mut Option<MixerDeviceSink>,
+    let start = |device: &mut Option<Output>,
                  project_id: Option<String>,
                  chapter_id: Option<String>,
                  title: String,
                  segs: Arc<Vec<Seg>>,
                  start_samples: u64|
      -> Option<Loaded> {
+        if device
+            .as_ref()
+            .is_some_and(|d| d.lost.load(Ordering::SeqCst))
+        {
+            *device = None;
+        }
         if device.is_none() {
-            match rodio::DeviceSinkBuilder::open_default_sink() {
-                Ok(d) => *device = Some(d),
-                Err(_) => {
-                    let _ = app.emit("notice", serde_json::json!({ "code": "no-audio-device" }));
-                    return None;
-                }
+            *device = open_output();
+            if device.is_none() {
+                let _ = app.emit("notice", serde_json::json!({ "code": "no-audio-device" }));
+                return None;
             }
         }
-        let sink = Sink::connect_new(device.as_ref()?.mixer());
+        let sink = Sink::connect_new(device.as_ref()?.sink.mixer());
         let consumed = Arc::new(AtomicU64::new(0));
         let source = ChapterSource::new(segs.clone(), start_samples, consumed.clone());
         let total = source.total;
@@ -270,6 +320,9 @@ fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
             consumed,
             sink,
             finished: false,
+            orphaned: false,
+            last_consumed: 0,
+            stalled: 0,
         })
     };
 
@@ -298,6 +351,10 @@ fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
                 if let Some(l) = loaded.take() {
                     if l.finished {
                         loaded = start(&mut device, l.project_id, l.chapter_id, l.title, l.segs, 0);
+                    } else if l.orphaned {
+                        let at = (l.start + l.consumed.load(Ordering::Relaxed)).min(l.total);
+                        loaded =
+                            start(&mut device, l.project_id, l.chapter_id, l.title, l.segs, at);
                     } else {
                         if l.sink.is_paused() {
                             l.sink.play();
@@ -311,7 +368,7 @@ fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
             }
             Ok(Cmd::Seek(ms)) => {
                 if let Some(l) = loaded.take() {
-                    let was_paused = l.sink.is_paused() && !l.finished;
+                    let was_paused = (l.sink.is_paused() || l.orphaned) && !l.finished;
                     let target = (ms * SAMPLE_RATE as u64 / 1000).min(l.total);
                     loaded = start(
                         &mut device,
@@ -329,16 +386,44 @@ fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
             }
             Ok(Cmd::Stop) => {
                 loaded = None;
+                device = None;
                 emit(&loaded);
             }
             Err(RecvTimeoutError::Timeout) => {
+                let lost = device
+                    .as_ref()
+                    .is_some_and(|d| d.lost.load(Ordering::SeqCst));
+                let mut notify = false;
                 if let Some(l) = &mut loaded {
-                    if !l.finished && l.sink.empty() {
+                    if !l.finished && !l.orphaned && l.sink.empty() {
                         l.finished = true;
+                        device = None;
                         emit(&loaded);
-                    } else if !l.finished && !l.sink.is_paused() {
+                    } else if l.playing() {
+                        let consumed = l.consumed.load(Ordering::Relaxed);
+                        if consumed == l.last_consumed {
+                            l.stalled += 1;
+                        } else {
+                            l.stalled = 0;
+                            l.last_consumed = consumed;
+                        }
+                        if lost || l.stalled >= STALL_TICKS {
+                            // The device is gone or silently stopped pulling samples: pause so the
+                            // position stops advancing; play reopens the output where we left off.
+                            l.sink.pause();
+                            l.orphaned = true;
+                            device = None;
+                            notify = true;
+                        }
                         emit(&loaded);
+                    } else {
+                        l.stalled = 0;
                     }
+                } else if lost {
+                    device = None;
+                }
+                if notify {
+                    let _ = app.emit("notice", serde_json::json!({ "code": "audio-device-lost" }));
                 }
             }
             Err(RecvTimeoutError::Disconnected) => break,

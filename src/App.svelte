@@ -65,6 +65,8 @@
           void attempt(app.refresh());
         } else if (code === "no-audio-device") {
           toast.error("No speakers or headphones found");
+        } else if (code === "audio-device-lost") {
+          toast.warning("The audio output changed. Press play to continue.");
         }
       }),
       on.confirmQuit(() => (quitOpen = true)),
