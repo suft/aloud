@@ -49,7 +49,7 @@ impl RenderService {
         let phonemes = plan::only_vocab(
             &self
                 .phonemizer
-                .phonemize(Dialect::for_voice(voice), &applied)?,
+                .phonemize_untracked(Dialect::for_voice(voice), &applied)?,
         );
         let batches = split_phonemes(&phonemes, MAX_BATCH_PHONEMES);
         if batches.is_empty() {

@@ -5,8 +5,9 @@ use misaki_rs::{
     fallback::{EspeakFallback, Fallback, FallbackError},
 };
 use std::{
+    cell::Cell,
     collections::HashMap,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, PoisonError},
 };
 
 use crate::error::{Error, Result};
@@ -33,9 +34,21 @@ pub trait Phonemize: Send + Sync {
     fn phonemize(&self, dialect: Dialect, text: &str) -> Result<String>;
     /// Words that needed the espeak fallback since the last call, with counts.
     fn take_oov(&self) -> HashMap<String, u32>;
+    /// Like `phonemize`, but espeak-fallback words are not recorded for `take_oov`.
+    fn phonemize_untracked(&self, dialect: Dialect, text: &str) -> Result<String> {
+        self.phonemize(dialect, text)
+    }
 }
 
 type OovMap = Arc<Mutex<HashMap<String, u32>>>;
+
+/// espeak-ng keeps the selected voice in global state, so every call takes this lock.
+static ESPEAK: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    /// False while `phonemize_untracked` runs on this thread.
+    static TRACK_OOV: Cell<bool> = const { Cell::new(true) };
+}
 
 struct RecordingFallback {
     inner: EspeakFallback,
@@ -44,9 +57,12 @@ struct RecordingFallback {
 
 impl Fallback for RecordingFallback {
     fn phonemize(&self, word: &str) -> std::result::Result<String, FallbackError> {
-        if let Ok(mut m) = self.oov.lock() {
+        if TRACK_OOV.get()
+            && let Ok(mut m) = self.oov.lock()
+        {
             *m.entry(word.to_lowercase()).or_insert(0) += 1;
         }
+        let _g = ESPEAK.lock().unwrap_or_else(PoisonError::into_inner);
         self.inner.phonemize(word)
     }
 }
@@ -80,7 +96,10 @@ impl Phonemizer {
         if let Some(g) = cell.get() {
             return Ok(g);
         }
-        let inner = EspeakFallback::new(british).map_err(Error::Other)?;
+        let inner = {
+            let _g = ESPEAK.lock().unwrap_or_else(PoisonError::into_inner);
+            EspeakFallback::new(british).map_err(Error::Other)?
+        };
         let fb = RecordingFallback {
             inner,
             oov: self.oov.clone(),
@@ -107,5 +126,50 @@ impl Phonemize for Phonemizer {
             .lock()
             .map(|mut m| std::mem::take(&mut *m))
             .unwrap_or_default()
+    }
+
+    fn phonemize_untracked(&self, dialect: Dialect, text: &str) -> Result<String> {
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                TRACK_OOV.set(true);
+            }
+        }
+        TRACK_OOV.set(false);
+        let _restore = Restore;
+        self.phonemize(dialect, text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Needs the espeak-ng data: `PIPER_ESPEAKNG_DATA_DIRECTORY` (`mise run test` sets it).
+    #[test]
+    fn untracked_calls_skip_oov_and_threads_agree() {
+        let p = Arc::new(Phonemizer::new());
+        let text = "Zyxquor flimbated the brillig toves";
+        let us = p.phonemize(Dialect::Us, text).unwrap();
+        let gb = p.phonemize(Dialect::Gb, text).unwrap();
+        assert!(p.take_oov().contains_key("zyxquor"));
+
+        p.phonemize_untracked(Dialect::Us, "Blorptastic").unwrap();
+        assert!(p.take_oov().is_empty());
+
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let (p, us, gb) = (p.clone(), us.clone(), gb.clone());
+                std::thread::spawn(move || {
+                    for _ in 0..20 {
+                        assert_eq!(p.phonemize(Dialect::Us, text).unwrap(), us);
+                        assert_eq!(p.phonemize(Dialect::Gb, text).unwrap(), gb);
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
     }
 }
