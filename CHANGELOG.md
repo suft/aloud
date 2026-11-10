@@ -23,6 +23,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Sliders, progress bars and the queue button have names for screen readers, and light-on-light text is easier to read (#48).
 - Downloads trust the certificates installed on your computer, and a blocked secure connection gets its own message (#62).
 - A voice pack can't be removed while a download is running, and a failed download can't leave Aloud thinking one is still going (#43).
+- Audiobook file names stay within the file-name length limit, avoid names Windows reserves, and drop invisible direction characters (#22).
 
 ## [0.1.0]
 

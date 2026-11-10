@@ -11,7 +11,10 @@ use std::{
     fs::{self, File},
     io::BufWriter,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -39,8 +42,18 @@ pub struct FinishedInfo {
     pub duration_secs: u64,
 }
 
+/// Unicode format characters (bidi controls, zero-width characters): invisible, and they let a
+/// title spoof a file extension.
+static FORMAT_CHARS: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\p{Cf}").expect("valid regex"));
+
+/// Longest base name in bytes. `<base> (NN).m4b.part` must stay under the 255-byte limit of most
+/// file systems.
+const MAX_NAME_BYTES: usize = 200;
+
 fn sanitize(s: &str) -> String {
-    let cleaned: String = s
+    let cleaned: String = FORMAT_CHARS
+        .replace_all(s, "")
         .chars()
         .map(|c| match c {
             '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
@@ -48,28 +61,50 @@ fn sanitize(s: &str) -> String {
             c => c,
         })
         .collect();
-    let trimmed = cleaned.trim().trim_matches('.').trim();
-    trimmed
-        .chars()
-        .take(150)
-        .collect::<String>()
-        .trim()
-        .to_string()
+    cleaned.trim().trim_matches('.').trim().to_string()
 }
 
-/// `<Title> - <First author>.m4b`
+/// Names Windows reserves, with or without an extension.
+fn is_reserved(base: &str) -> bool {
+    let stem = base.split('.').next().unwrap_or("").trim_end();
+    const FIXED: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+    let numbered = |prefix: &str| {
+        let b = stem.as_bytes();
+        b.len() == 4
+            && b[..3].eq_ignore_ascii_case(prefix.as_bytes())
+            && matches!(b[3], b'1'..=b'9')
+    };
+    FIXED.iter().any(|r| stem.eq_ignore_ascii_case(r)) || numbered("COM") || numbered("LPT")
+}
+
+/// `<Title> - <First author>.m4b`, safe on Windows, macOS and Linux and within 255 bytes.
 pub fn output_file_name(project: &Project) -> String {
-    let mut base = sanitize(&project.meta.title);
-    if let Some(a) = project.meta.authors.first() {
-        let a = sanitize(a);
-        if !a.is_empty() {
-            base = format!("{base} - {a}");
-        }
+    let title = sanitize(&project.meta.title);
+    let author = project
+        .meta
+        .authors
+        .first()
+        .map(|a| sanitize(a))
+        .unwrap_or_default();
+    let mut base = match (title.is_empty(), author.is_empty()) {
+        (false, false) => format!("{title} - {author}"),
+        (false, true) => title,
+        (true, false) => format!("Audiobook - {author}"),
+        (true, true) => "Audiobook".to_string(),
+    };
+    let mut end = base.len().min(MAX_NAME_BYTES);
+    while !base.is_char_boundary(end) {
+        end -= 1;
     }
+    base.truncate(end);
+    base.truncate(base.trim_end_matches([' ', '.']).len());
     if base.is_empty() {
         base = "Audiobook".into();
     }
-    format!("{}.m4b", sanitize(&base))
+    if is_reserved(&base) {
+        base.insert(0, '_');
+    }
+    format!("{base}.m4b")
 }
 
 fn unique_path(dir: &Path, file_name: &str) -> PathBuf {

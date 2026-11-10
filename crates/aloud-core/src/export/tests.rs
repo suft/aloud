@@ -249,3 +249,61 @@ fn output_dir_must_be_absolute_and_writable() {
     check_output_dir(&nested).unwrap();
     assert_eq!(fs::read_dir(&nested).unwrap().count(), 0);
 }
+
+fn named(title: &str, author: Option<&str>) -> Project {
+    let book = Book {
+        meta: BookMeta {
+            title: title.into(),
+            authors: author.map(String::from).into_iter().collect(),
+            ..Default::default()
+        },
+        chapters: vec![],
+    };
+    Project::new("proj", "t.epub".into(), &book, &Settings::default())
+}
+
+#[test]
+fn long_cjk_titles_fit_in_a_file_name() {
+    let name = output_file_name(&named(&"漢".repeat(150), Some("著者")));
+    assert!(name.len() <= 204, "{} bytes", name.len());
+    assert!(name.ends_with(".m4b"));
+    let worst = format!("{} (99).m4b.part", name.trim_end_matches(".m4b"));
+    assert!(worst.len() <= 255);
+}
+
+#[test]
+fn reserved_windows_names_get_a_prefix() {
+    for (title, want) in [
+        ("Con", "_Con.m4b"),
+        ("nul", "_nul.m4b"),
+        ("Console", "Console.m4b"),
+    ] {
+        assert_eq!(output_file_name(&named(title, None)), want);
+    }
+}
+
+#[test]
+fn format_characters_are_removed() {
+    let name = output_file_name(&named("abc\u{202E}gpj.exe", None));
+    assert_eq!(name, "abcgpj.exe.m4b");
+}
+
+#[test]
+fn empty_title_uses_a_placeholder() {
+    assert_eq!(
+        output_file_name(&named("", Some("Ann Author"))),
+        "Audiobook - Ann Author.m4b"
+    );
+    assert_eq!(output_file_name(&named("  ", None)), "Audiobook.m4b");
+}
+
+#[test]
+fn unique_path_numbers_taken_names() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("Book.m4b"), b"x").unwrap();
+    fs::write(dir.path().join("Book (2).m4b"), b"x").unwrap();
+    assert_eq!(
+        unique_path(dir.path(), "Book.m4b"),
+        dir.path().join("Book (3).m4b")
+    );
+}
