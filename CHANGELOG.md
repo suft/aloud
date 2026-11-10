@@ -21,6 +21,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A book that can't be opened shows an error with a way back to your books, and a failing library shows one message instead of many (#40).
 - Quitting with Cmd+Q or from the Dock while a book is being made asks first, and quitting shows its progress (#39).
 - Sliders, progress bars and the queue button have names for screen readers, and light-on-light text is easier to read (#48).
+- Downloads trust the certificates installed on your computer, and a blocked secure connection gets its own message (#62).
 
 ## [0.1.0]
 

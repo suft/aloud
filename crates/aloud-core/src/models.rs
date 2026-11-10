@@ -144,6 +144,10 @@ pub struct DownloadProgress {
 pub enum DownloadError {
     #[error("Couldn't reach the download server. Check your internet connection and try again.")]
     Offline,
+    #[error(
+        "Couldn't make a secure connection to the download server. If your network checks secure traffic (for example a work proxy), make sure its certificate is installed on this computer."
+    )]
+    Tls,
     #[error("The download was damaged. Please try again.")]
     Corrupt,
     #[error("Not enough disk space.")]
@@ -156,6 +160,27 @@ pub enum DownloadError {
     Cancelled,
     #[error("This voice pack is already downloading.")]
     Busy,
+}
+
+/// Whether `e` or anything in its cause chain is a rustls error. rustls errors travel inside
+/// (possibly nested) `io::Error`s, whose `source()` skips its payload, so those are unwrapped
+/// explicitly.
+fn is_tls_error(e: &(dyn std::error::Error + 'static)) -> bool {
+    let mut cur = Some(e);
+    while let Some(err) = cur {
+        if err.is::<rustls::Error>() {
+            return true;
+        }
+        let mut inner = err.downcast_ref::<io::Error>().and_then(io::Error::get_ref);
+        while let Some(i) = inner {
+            if i.is::<rustls::Error>() {
+                return true;
+            }
+            inner = i.downcast_ref::<io::Error>().and_then(io::Error::get_ref);
+        }
+        cur = err.source();
+    }
+    false
 }
 
 impl From<io::Error> for DownloadError {
@@ -285,15 +310,19 @@ pub(crate) fn fetch(
         }
         fs::remove_file(&part)?;
     }
-    let offline = |e: &dyn std::fmt::Display| {
+    let net_err = |e: &(dyn std::error::Error + 'static)| {
         tracing::warn!("downloading {}: {e}", asset.file);
-        DownloadError::Offline
+        if is_tls_error(e) {
+            DownloadError::Tls
+        } else {
+            DownloadError::Offline
+        }
     };
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .tcp_keepalive(Duration::from_secs(30))
         .build()
-        .map_err(|e| offline(&e))?;
+        .map_err(|e| net_err(&e))?;
 
     let mut restarted = false;
     loop {
@@ -311,7 +340,7 @@ pub(crate) fn fetch(
         if existing > 0 {
             req = req.header(reqwest::header::RANGE, format!("bytes={existing}-"));
         }
-        let mut resp = req.send().map_err(|e| offline(&e))?;
+        let mut resp = req.send().map_err(|e| net_err(&e))?;
         let status = resp.status().as_u16();
         if status == 416 && !restarted {
             // The partial file doesn't match the server's idea of the file; start over.
@@ -355,7 +384,7 @@ pub(crate) fn fetch(
                 Ok(0) => break,
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(offline(&e)),
+                Err(e) => return Err(net_err(&e)),
             };
             if downloaded + n as u64 > asset.size {
                 drop(file);

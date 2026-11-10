@@ -25,7 +25,8 @@ scraper = "0.23"
 regex = "1"
 encoding_rs = "0.8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-webpki-roots", "rustls-tls-native-roots", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 sha2 = "0.10"
 num_cpus = "1"
 keepawake = "0.5"
