@@ -110,6 +110,7 @@ mise install && mise run setup && mise run dev
 | `mise run models`       | Download the models and a public-domain test book into `.dev-data/`          |
 | `mise run e2e`          | Render two chapters of the test book with the CLI example                    |
 | `mise run smoke`        | Render a tiny generated EPUB end to end (fast model; CI runs this)           |
+| `mise run audit`        | cargo-deny (advisories, licences, sources) and bun audit                     |
 | `mise run notices`      | Regenerate THIRD-PARTY-NOTICES.txt (cargo-about + npm licences)              |
 | `mise run screenshots`  | Regenerate the README screenshots (headless Chromium, mocked backend)        |
 

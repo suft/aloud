@@ -96,8 +96,9 @@ fn read_entry(zip: &mut Zip, name: &str) -> Option<Vec<u8>> {
         let found = zip
             .archive
             .file_names()
+            .filter_map(Result::ok)
             .find(|n| n.eq_ignore_ascii_case(name))
-            .map(str::to_string)?;
+            .map(|n| n.into_owned())?;
         zip.archive.index_for_name(&found)
     })?;
     let limit = MAX_ENTRY_BYTES.min(MAX_INFLATED_BYTES.saturating_sub(zip.inflated));

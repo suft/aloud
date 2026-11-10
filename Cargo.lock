@@ -81,7 +81,7 @@ dependencies = [
  "tiny_http",
  "tracing",
  "uuid",
- "zip 2.6.1",
+ "zip",
 ]
 
 [[package]]
@@ -223,15 +223,6 @@ dependencies = [
  "apple-bindgen",
  "apple-sdk",
  "objc",
-]
-
-[[package]]
-name = "arbitrary"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
-dependencies = [
- "derive_arbitrary",
 ]
 
 [[package]]
@@ -1310,17 +1301,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "derive_arbitrary"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.10",
 ]
 
 [[package]]
@@ -5887,7 +5867,7 @@ dependencies = [
  "tokio",
  "url",
  "windows-sys 0.61.2",
- "zip 9.5.0",
+ "zip",
 ]
 
 [[package]]
@@ -7742,27 +7722,13 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "2.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dcb24d0152526ae49b9b96c1dcf71850ca1e0b882e4e28ed898a93c41334744"
-dependencies = [
- "arbitrary",
- "crc32fast",
- "crossbeam-utils",
- "flate2",
- "indexmap 2.14.2",
- "memchr",
- "zopfli",
-]
-
-[[package]]
-name = "zip"
 version = "9.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0700e6c427aff64acdbf02e85fbfd946c2ee12319d1af013092f3a2178914ff8"
 dependencies = [
  "constant_time_eq 0.6.1",
  "crc32fast",
+ "flate2",
  "getrandom 0.4.3",
  "indexmap 2.14.2",
  "libc",
@@ -7771,6 +7737,7 @@ dependencies = [
  "typed-path",
  "windows-sys 0.61.2",
  "zeroize",
+ "zopfli",
 ]
 
 [[package]]

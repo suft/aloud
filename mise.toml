@@ -3,6 +3,7 @@ rust = { version = "1.99", components = "clippy,rustfmt" }
 bun = "1.4"
 cmake = "4"
 "github:EmbarkStudios/cargo-about" = "0.9.3"
+"github:EmbarkStudios/cargo-deny" = "0.20.2"
 
 [env]
 PIPER_ESPEAKNG_DATA_DIRECTORY = "{{config_root}}/src-tauri/resources"
@@ -46,6 +47,10 @@ run = [
   "bun scripts/smoke.ts .smoke-data",
   "cargo run {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} -p aloud-core --example aloud -- --data .smoke-data --epub .smoke-data/smoke.epub --model fast --out .smoke-data/out",
 ]
+
+[tasks.audit]
+description = "Check dependencies for advisories, licences and sources"
+run = ["cargo deny check", "bun audit --audit-level=moderate"]
 
 [tasks.screenshots]
 description = "Regenerate the README screenshots in docs/screenshots/"

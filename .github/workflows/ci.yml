@@ -61,10 +61,21 @@ jobs:
           key: kokoro-v1.0-fast
       - run: mise run smoke
 
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5
+      - run: bun install --frozen-lockfile
+      - run: mise run audit
+
   # One stable status for the branch ruleset ("Protect main" requires a check named `check`).
   check:
     if: always()
-    needs: [lint, test]
+    needs: [lint, test, audit]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
