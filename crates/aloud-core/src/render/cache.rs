@@ -56,7 +56,12 @@ pub fn write_pcm(audio_dir: &Path, key: &str, samples: &[f32]) -> io::Result<()>
 }
 
 pub fn read_pcm(audio_dir: &Path, key: &str) -> io::Result<Vec<f32>> {
-    let bytes = fs::read(pcm_path(audio_dir, key))?;
+    read_pcm_file(&pcm_path(audio_dir, key))
+}
+
+/// Reads one `.pcm` cache file (16-bit little-endian) as f32 samples.
+pub fn read_pcm_file(path: &Path) -> io::Result<Vec<f32>> {
+    let bytes = fs::read(path)?;
     Ok(bytes
         .as_chunks::<2>()
         .0

@@ -5,11 +5,11 @@ use rodio::{ChannelCount, MixerDeviceSink, Player as Sink, SampleRate, Source};
 use serde::Serialize;
 use std::{
     num::NonZero,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{self, RecvTimeoutError, Sender},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender},
     },
     time::Duration,
 };
@@ -91,7 +91,8 @@ fn samples_to_ms(s: u64) -> u64 {
     s * 1000 / SAMPLE_RATE as u64
 }
 
-/// Streams a chapter's segments lazily, reading each `.pcm` only when it is reached.
+/// Streams a chapter's segments lazily, reading each `.pcm` only when it is reached. The next
+/// file segment is read ahead on a helper thread, so the audio thread rarely waits on disk.
 struct ChapterSource {
     segs: Arc<Vec<Seg>>,
     idx: usize,
@@ -100,11 +101,40 @@ struct ChapterSource {
     silence_left: u64,
     consumed: Arc<AtomicU64>,
     total: u64,
+    /// Requests to the prefetch thread; `None` if it couldn't be started.
+    want: Option<SyncSender<usize>>,
+    got: Receiver<(usize, Option<Arc<[f32]>>)>,
+    /// Index of the segment the prefetch thread is reading, until it is taken by `load`.
+    pending: Option<usize>,
+    empty: Arc<[f32]>,
+}
+
+fn read_seg(path: &Path) -> Option<Arc<[f32]>> {
+    cache::read_pcm_file(path).ok().map(Arc::from)
 }
 
 impl ChapterSource {
     fn new(segs: Arc<Vec<Seg>>, start: u64, consumed: Arc<AtomicU64>) -> Self {
         let total = segs.iter().map(Seg::len).sum();
+        let (want_tx, want_rx) = mpsc::sync_channel::<usize>(1);
+        let (got_tx, got_rx) = mpsc::sync_channel(1);
+        let reader_segs = segs.clone();
+        let want = std::thread::Builder::new()
+            .name("aloud-prefetch".into())
+            .spawn(move || {
+                for i in want_rx {
+                    let data = match &reader_segs[i] {
+                        Seg::File { path, .. } => read_seg(path),
+                        _ => None,
+                    };
+                    if got_tx.send((i, data)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map(|_| want_tx)
+            .map_err(|e| log::warn!("couldn't start the prefetch thread: {e}"))
+            .ok();
         let mut src = ChapterSource {
             segs,
             idx: 0,
@@ -113,6 +143,10 @@ impl ChapterSource {
             silence_left: 0,
             consumed,
             total,
+            want,
+            got: got_rx,
+            pending: None,
+            empty: Arc::from([]),
         };
         let mut offset = start;
         while src.idx < src.segs.len() && offset >= src.segs[src.idx].len() {
@@ -128,7 +162,7 @@ impl ChapterSource {
     fn load(&mut self, offset: u64) {
         self.pos = 0;
         self.silence_left = 0;
-        self.cur = Arc::from([]);
+        self.cur = self.empty.clone();
         match &self.segs[self.idx] {
             Seg::Silence(n) => self.silence_left = n - offset,
             Seg::Mem(m) => {
@@ -136,21 +170,39 @@ impl ChapterSource {
                 self.pos = offset as usize;
             }
             Seg::File { path, samples } => {
+                let data = match self.pending.take_if(|p| *p == self.idx) {
+                    // Blocks only if the read is still running.
+                    Some(_) => match self.got.recv() {
+                        Ok((_, data)) => data,
+                        Err(_) => read_seg(path),
+                    },
+                    // Only the first segment, which `new` loads on the player thread.
+                    None => read_seg(path),
+                };
                 // Missing files play as silence rather than ending playback.
-                match std::fs::read(path) {
-                    Ok(bytes) => {
-                        let v: Vec<f32> = bytes
-                            .as_chunks::<2>()
-                            .0
-                            .iter()
-                            .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32767.0)
-                            .collect();
-                        self.cur = Arc::from(v);
+                match data {
+                    Some(d) => {
+                        self.cur = d;
                         self.pos = offset as usize;
                     }
-                    Err(_) => self.silence_left = samples - offset,
+                    None => self.silence_left = samples - offset,
                 }
             }
+        }
+        self.prefetch_next();
+    }
+
+    fn prefetch_next(&mut self) {
+        let Some(want) = &self.want else { return };
+        if self.pending.is_some() {
+            return;
+        }
+        let next =
+            (self.idx + 1..self.segs.len()).find(|&j| matches!(self.segs[j], Seg::File { .. }));
+        if let Some(j) = next
+            && want.try_send(j).is_ok()
+        {
+            self.pending = Some(j);
         }
     }
 }
