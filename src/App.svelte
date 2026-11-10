@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { ModeWatcher, setMode } from "mode-watcher";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { toast } from "svelte-sonner";
   import { fade } from "svelte/transition";
   import { api, on } from "$lib/api";
@@ -28,7 +28,10 @@
   const canImport = $derived(app.ready && app.screen.name !== "onboarding");
 
   $effect(() => {
-    if (app.ready) setMode(app.settings.theme);
+    if (!app.ready) return;
+    const theme = app.settings.theme;
+    // setMode reads mode-watcher state it then writes; tracking it re-runs this effect forever.
+    untrack(() => setMode(theme));
   });
 
   onMount(() => {
