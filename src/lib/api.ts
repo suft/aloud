@@ -242,6 +242,7 @@ export const api = {
   clearProjectCache: (id: string) => call<void>("clear_project_cache", { id }),
   storageSize: () => call<number>("storage_size"),
   openDataDir: () => call<void>("open_data_dir"),
+  openOutput: (id: string) => call<void>("open_output", { id }),
   quitApp: () => call<void>("quit_app"),
 };
 

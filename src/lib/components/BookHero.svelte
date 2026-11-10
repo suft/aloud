@@ -2,7 +2,7 @@
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import Loader from "@lucide/svelte/icons/loader-circle";
   import Play from "@lucide/svelte/icons/play";
-  import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api, imageSrc } from "$lib/api";
   import { Button } from "$lib/components/ui/button";
   import { Slider } from "$lib/components/ui/slider";
@@ -185,7 +185,7 @@
             <Button
               size="lg"
               class="h-11 rounded-full bg-book px-6 text-white hover:bg-book/90"
-              onclick={() => attempt(openPath(status.output))}
+              onclick={() => attempt(api.openOutput(project.id))}
             >
               Open audiobook
             </Button>

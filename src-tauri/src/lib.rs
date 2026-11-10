@@ -115,6 +115,7 @@ pub fn run() {
             commands::clear_project_cache,
             commands::storage_size,
             commands::open_data_dir,
+            commands::open_output,
             commands::quit_app,
         ])
         .run(tauri::generate_context!())

@@ -10,7 +10,6 @@
     "core:webview:allow-internal-toggle-devtools",
     "dialog:allow-open",
     "opener:allow-reveal-item-in-dir",
-    "opener:allow-open-path",
     "notification:default",
     "window-state:default"
   ]
