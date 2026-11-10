@@ -12,7 +12,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          # ort's prebuilt ONNX Runtime is built against glibc >= 2.38 / GCC 13 and fails to link on 22.04.
+          - os: ubuntu-24.04
             args: ""
           - os: windows-latest
             args: ""

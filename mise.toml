@@ -1,7 +1,7 @@
 [tools]
 rust = { version = "1.99", components = "clippy,rustfmt" }
 bun = "1.4"
-cmake = "3"
+cmake = "4"
 
 [env]
 PIPER_ESPEAKNG_DATA_DIRECTORY = "{{config_root}}/src-tauri/resources"
