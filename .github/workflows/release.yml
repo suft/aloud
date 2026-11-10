@@ -79,10 +79,38 @@ jobs:
           key: onnxruntime-1.31.0-${{ runner.os }}-${{ hashFiles('scripts/fetch-onnxruntime.ts') }}
       - run: mise run setup
       - name: Build installers
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bun tauri build --config src-tauri/tauri.release.conf.json ${{ matrix.args }} -- --locked
+          # macOS signing and notarization (CONTRIBUTING.md); exported below only when all six are set.
+          SECRET_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          SECRET_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SECRET_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            names="APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID"
+            count=0
+            for n in $names; do s="SECRET_$n"; if [ -n "${!s}" ]; then count=$((count + 1)); fi; done
+            if [ "$count" -eq 6 ]; then
+              for n in $names; do s="SECRET_$n"; export "$n=${!s}"; done
+              echo "APPLE_SIGNED=true" >> "$GITHUB_ENV"
+            elif [ "$count" -ne 0 ]; then
+              echo "::error::Set all six APPLE_* signing secrets or none (see CONTRIBUTING.md)"
+              exit 1
+            fi
+          fi
+          bun tauri build --config src-tauri/tauri.release.conf.json ${{ matrix.args }} -- --locked
+      - name: Check the macOS signature
+        if: env.APPLE_SIGNED == 'true'
+        run: |
+          app="${{ matrix.bundle }}/macos/Aloud.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bundle-${{ matrix.os }}

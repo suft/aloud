@@ -33,3 +33,17 @@ For a user-visible change, add a line under `## [Unreleased]` in [CHANGELOG.md](
 3. Tag the commit `vx.y.z` and push the tag.
 
 The release fails without a `## [x.y.z]` section in `CHANGELOG.md`; that section becomes the release notes.
+
+### Signing the macOS app
+
+Release builds sign and notarize the macOS app when all six repository secrets below exist. With none of them
+the app is unsigned; with only some, the release fails.
+
+- `APPLE_CERTIFICATE`: the Developer ID Application certificate and its key, exported as `.p12` and
+  base64-encoded (`openssl base64 -A -in certificate.p12`).
+- `APPLE_CERTIFICATE_PASSWORD`: the `.p12` export password.
+- `APPLE_SIGNING_IDENTITY`: for example `Developer ID Application: Your Name (TEAMID)`.
+- `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and `APPLE_TEAM_ID`: for notarization.
+
+A signed build is checked with `codesign`, `spctl` and `stapler`. Once releases are signed, remove the Gatekeeper
+steps from the install notes in `README.md`.
