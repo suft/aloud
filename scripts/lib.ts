@@ -9,7 +9,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -17,6 +17,17 @@ export async function sha256File(path: string): Promise<string> {
   const h = createHash("sha256");
   for await (const chunk of createReadStream(path)) h.update(chunk as Buffer);
   return h.digest("hex");
+}
+
+/**
+ * The tar to extract archives with. On Windows that is the bsdtar that ships with the system
+ * rather than the one from Git: GNU tar would read a drive letter in an argument as a remote
+ * host, so callers also pass relative paths.
+ */
+export function tarCommand(): string {
+  return process.platform === "win32"
+    ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "tar";
 }
 
 /** Downloads `url` to `dest`, verifying size and sha256. Skips when `dest` already has the right size. */

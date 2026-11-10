@@ -7,3 +7,4 @@ src-tauri/resources/.espeak-ng-data-*/
 src-tauri/gen/
 .smoke-data/
 src-tauri/resources/THIRD-PARTY-NOTICES.txt
+.ort-cache/

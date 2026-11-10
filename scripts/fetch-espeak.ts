@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { fetchVerified } from "./lib.ts";
+import { fetchVerified, tarCommand } from "./lib.ts";
 
 const URL =
   "https://github.com/thewh1teagle/piper-rs/releases/download/espeak-ng-files/espeak-ng-data.tar.gz";
@@ -54,13 +54,7 @@ try {
     console.error(msg.includes("checksum") ? "espeak-ng-data checksum mismatch" : msg);
     process.exit(1);
   }
-  // Relative arguments: a drive letter in an argument would make GNU tar look for a remote host,
-  // so on Windows use the bsdtar that ships with the system rather than the one from Git.
-  const tar =
-    process.platform === "win32"
-      ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-      : "tar";
-  const x = Bun.spawnSync([tar, "-xzf", "espeak-ng-data.tar.gz"], { cwd: tmp });
+  const x = Bun.spawnSync([tarCommand(), "-xzf", "espeak-ng-data.tar.gz"], { cwd: tmp });
   if (x.exitCode !== 0) {
     console.error(x.stderr.toString());
     process.exit(1);

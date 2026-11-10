@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 30
     env:
       ALOUD_CARGO_ARGS: --config .github/cargo-ci.toml
+      ORT_CACHE_DIR: ${{ github.workspace }}/.ort-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,6 +33,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ hashFiles('mise.toml') }}
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .ort-cache
+          key: onnxruntime-1.31.0-${{ runner.os }}-${{ hashFiles('scripts/fetch-onnxruntime.ts') }}
       - run: mise run setup
       - run: mise run lint
 
@@ -40,6 +45,7 @@ jobs:
     timeout-minutes: 30
     env:
       ALOUD_CARGO_ARGS: --config .github/cargo-ci.toml
+      ORT_CACHE_DIR: ${{ github.workspace }}/.ort-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,6 +59,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ hashFiles('mise.toml') }}
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .ort-cache
+          key: onnxruntime-1.31.0-${{ runner.os }}-${{ hashFiles('scripts/fetch-onnxruntime.ts') }}
       - run: mise run setup
       - run: mise run test
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
@@ -95,6 +105,8 @@ jobs:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    env:
+      ORT_CACHE_DIR: ${{ github.workspace }}/.ort-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,6 +115,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: ${{ hashFiles('mise.toml') }}
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .ort-cache
+          key: onnxruntime-1.31.0-${{ runner.os }}-${{ hashFiles('scripts/fetch-onnxruntime.ts') }}
       - run: mise run setup
       - run: mise run test
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

@@ -7,10 +7,12 @@ cmake = "4"
 
 [env]
 PIPER_ESPEAKNG_DATA_DIRECTORY = "{{config_root}}/src-tauri/resources"
+# Where ort-sys finds the ONNX Runtime that scripts/fetch-onnxruntime.ts put there.
+ORT_CACHE_DIR = "{{config_root}}/.ort-cache"
 
 [tasks.setup]
-description = "Install JS deps, fetch bundled espeak-ng data and generate the third-party notices"
-run = ["bun install", "bun scripts/fetch-espeak.ts", "bun scripts/notices.ts"]
+description = "Install JS deps, fetch bundled espeak-ng data and ONNX Runtime, and generate the third-party notices"
+run = ["bun install", "bun scripts/fetch-espeak.ts", "bun scripts/fetch-onnxruntime.ts", "bun scripts/notices.ts"]
 
 [tasks.notices]
 description = "Regenerate src-tauri/resources/THIRD-PARTY-NOTICES.txt (cargo-about + npm licences)"

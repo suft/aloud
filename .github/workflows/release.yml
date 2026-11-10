@@ -54,6 +54,9 @@ jobs:
             bundle: target/aarch64-apple-darwin/release/bundle
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    env:
+      # `bun tauri build` runs outside mise, so it can't rely on mise exporting this.
+      ORT_CACHE_DIR: ${{ github.workspace }}/.ort-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,6 +72,10 @@ jobs:
         with:
           # cmake-rs bakes the cmake binary path into build dirs; a toolchain bump must not reuse them.
           key: ${{ hashFiles('mise.toml') }}
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .ort-cache
+          key: onnxruntime-1.31.0-${{ runner.os }}-${{ hashFiles('scripts/fetch-onnxruntime.ts') }}
       - run: mise run setup
       - name: Build installers
         env:
