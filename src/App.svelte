@@ -1,10 +1,11 @@
 <script lang="ts">
+  import Loader from "@lucide/svelte/icons/loader-circle";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { ModeWatcher, setMode } from "mode-watcher";
   import { onMount, untrack } from "svelte";
   import { toast } from "svelte-sonner";
   import { fade } from "svelte/transition";
-  import { api, on } from "$lib/api";
+  import { api, errorMessage, on } from "$lib/api";
   import BookScreen from "$lib/components/BookScreen.svelte";
   import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import BootError from "$lib/components/BootError.svelte";
@@ -27,6 +28,17 @@
 
   let dragging = $state(false);
   let quitOpen = $state(false);
+  let quitting = $state(false);
+
+  async function quit() {
+    quitting = true;
+    try {
+      await api.quitApp();
+    } catch (e) {
+      quitting = false;
+      toast.error(errorMessage(e));
+    }
+  }
 
   const canImport = $derived(app.ready && app.screen.name !== "onboarding");
 
@@ -124,7 +136,7 @@
   confirmLabel="Quit"
   cancelLabel="Keep working"
   destructive
-  onconfirm={() => attempt(api.quitApp())}
+  onconfirm={quit}
 />
 
 {#if dragging}
@@ -136,6 +148,22 @@
       class="rounded-3xl border-2 border-dashed border-primary px-12 py-10 text-xl font-semibold tracking-tight"
     >
       Drop an EPUB to add it
+    </div>
+  </div>
+{/if}
+
+{#if quitting}
+  <div
+    class="fixed inset-0 z-50 grid place-items-center bg-background/70 backdrop-blur-sm"
+    role="status"
+    aria-live="polite"
+    transition:fade={{ duration: dur(150) }}
+  >
+    <div
+      class="flex items-center gap-3 rounded-3xl bg-card px-8 py-6 text-lg font-medium shadow-lg"
+    >
+      <Loader class="size-5 animate-spin" aria-hidden="true" />
+      Stopping… Aloud is saving the finished parts.
     </div>
   </div>
 {/if}

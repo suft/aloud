@@ -39,6 +39,8 @@ type St<'a> = State<'a, Arc<AppState>>;
 const WORDS_PER_MINUTE: f64 = 175.0;
 const SAMPLE_TEXT: &str = "Once upon a time, in a quiet town by the sea, there lived a girl who loved stories more than anything in the world.";
 const BUSY: &str = "Pause first to change this.";
+/// How long `quit_app` waits for the job to stop before it refuses to quit.
+const QUIT_GRACE: Duration = Duration::from_secs(45);
 
 fn double_option<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
 where
@@ -1091,7 +1093,14 @@ pub async fn open_output(state: St<'_>, id: String) -> AppResult<()> {
 pub async fn quit_app(state: St<'_>) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
+        // Pausing stops the job after its current utterance; an export stops on the same flag
+        // and deletes its partial file, so a completed pause never leaves a half-written output.
         s.render.pause();
+        if !s.render.wait_idle(QUIT_GRACE) {
+            return Err(AppError::new(
+                "Aloud is still saving your audiobook. Try quitting again in a minute.",
+            ));
+        }
         s.app.exit(0);
         Ok(())
     })

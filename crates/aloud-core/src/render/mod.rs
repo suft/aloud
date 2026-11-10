@@ -355,14 +355,14 @@ impl RenderService {
         st.queue.clone()
     }
 
-    /// Blocks until no job is running or `timeout` passes.
-    pub fn wait_idle(&self, timeout: Duration) {
+    /// Blocks until no job is running or `timeout` passes; returns whether the service is idle.
+    pub fn wait_idle(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         let mut st = lock(&self.state);
         while st.active.is_some() {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                return;
+                return false;
             }
             st = self
                 .cv
@@ -370,6 +370,7 @@ impl RenderService {
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
         }
+        true
     }
 
     pub(crate) fn voices(&self) -> Result<Arc<Voices>> {

@@ -33,6 +33,11 @@ fn configure_espeak(app: &tauri::App) {
     }
 }
 
+fn render_busy(app: &tauri::AppHandle) -> bool {
+    app.try_state::<Arc<AppState>>()
+        .is_some_and(|s| s.render.is_busy())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -91,10 +96,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let busy = window
-                    .app_handle()
-                    .try_state::<Arc<AppState>>()
-                    .is_some_and(|s| s.render.is_busy());
+                let busy = render_busy(window.app_handle());
                 if busy {
                     api.prevent_close();
                     let _ = window.app_handle().emit("confirm-quit", ());
@@ -140,6 +142,18 @@ pub fn run() {
             commands::open_output,
             commands::quit_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Aloud");
+        .build(tauri::generate_context!())
+        .expect("error while building Aloud")
+        .run(|app, event| {
+            // `code: None` is the user asking to quit (Cmd+Q, Dock → Quit); `quit_app` exits with
+            // `Some(0)` once the job has stopped, so it is never blocked here.
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = &event
+                && render_busy(app)
+            {
+                api.prevent_exit();
+                let _ = app.emit("confirm-quit", ());
+            }
+        });
 }
