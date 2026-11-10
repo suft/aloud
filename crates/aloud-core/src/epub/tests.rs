@@ -397,3 +397,39 @@ fn toc_anchors_split_one_file_into_chapters() {
     assert_eq!(paras(1), ["Beta text."]);
     assert_eq!(paras(2), ["Gamma text."]);
 }
+
+#[test]
+fn chapters_in_latin1_utf16_and_cp1252_decode() {
+    let head = r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title></head><body>"#;
+    let mut latin1 = br#"<?xml version="1.0" encoding="ISO-8859-1"?>"#.to_vec();
+    latin1.extend_from_slice(head.as_bytes());
+    latin1.extend_from_slice(b"<p>Caf\xe9 cr\xe8me.</p></body></html>");
+
+    let mut utf16 = vec![0xFF, 0xFE];
+    for u in format!("{head}<p>Hello from sixteen bits.</p></body></html>").encode_utf16() {
+        utf16.extend_from_slice(&u.to_le_bytes());
+    }
+
+    let mut cp1252 = head.as_bytes().to_vec();
+    cp1252.extend_from_slice(b"<p>Na\xefve text.</p></body></html>");
+
+    let bytes = epub_with(
+        &[("a.xhtml", "A"), ("b.xhtml", "B"), ("c.xhtml", "C")],
+        &[("a.xhtml", latin1), ("b.xhtml", utf16), ("c.xhtml", cp1252)],
+    );
+    let (_d, data, r) = import_bytes(&bytes);
+    let book = ProjectStore::new(data).book(&r.unwrap().id).unwrap();
+    let paras: Vec<&str> = book
+        .chapters
+        .iter()
+        .flat_map(|c| c.blocks.iter())
+        .filter_map(|b| match b {
+            Block::Para(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        paras,
+        ["Café crème.", "Hello from sixteen bits.", "Naïve text."]
+    );
+}

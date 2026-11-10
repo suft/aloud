@@ -118,9 +118,45 @@ fn read_entry(zip: &mut Zip, name: &str) -> Option<Vec<u8>> {
 }
 
 fn read_text(zip: &mut Zip, name: &str) -> Option<String> {
-    let bytes = read_entry(zip, name)?;
-    let s = String::from_utf8_lossy(&bytes);
-    Some(s.trim_start_matches('\u{feff}').to_string())
+    Some(decode_text(&read_entry(zip, name)?))
+}
+
+static DECL_RE: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
+    regex::bytes::Regex::new(r#"(?i-u)(?:encoding|charset)\s*=\s*["']?([a-z0-9._:-]+)"#).unwrap()
+});
+
+/// Decodes a chapter file: BOM first, then BOM-less UTF-16, then a declared encoding
+/// (`<?xml encoding=…?>` or `<meta charset=…>`), then UTF-8, and finally Windows-1252.
+fn decode_text(bytes: &[u8]) -> String {
+    use encoding_rs::{Encoding, UTF_16BE, UTF_16LE, WINDOWS_1252};
+    if let Some((enc, bom_len)) = Encoding::for_bom(bytes) {
+        return enc
+            .decode_without_bom_handling(&bytes[bom_len..])
+            .0
+            .into_owned();
+    }
+    if bytes.starts_with(b"<\0") {
+        return UTF_16LE.decode_without_bom_handling(bytes).0.into_owned();
+    }
+    if bytes.starts_with(b"\0<") {
+        return UTF_16BE.decode_without_bom_handling(bytes).0.into_owned();
+    }
+    let head = &bytes[..bytes.len().min(1024)];
+    if let Some(enc) = DECL_RE
+        .captures(head)
+        .and_then(|c| Encoding::for_label(&c[1]))
+        // The bytes are ASCII-compatible here, so a UTF-16 declaration can't be right.
+        .filter(|e| *e != UTF_16LE && *e != UTF_16BE)
+    {
+        return enc.decode_without_bom_handling(bytes).0.into_owned();
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_owned(),
+        Err(_) => WINDOWS_1252
+            .decode_without_bom_handling(bytes)
+            .0
+            .into_owned(),
+    }
 }
 
 fn parse_xml(s: &str) -> Option<Document<'_>> {
