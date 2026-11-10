@@ -73,7 +73,7 @@ jobs:
           # cmake-rs bakes the cmake binary path into build dirs; a toolchain bump must not reuse them.
           key: ${{ hashFiles('mise.toml', 'mise.lock') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ort-cache
           key: onnxruntime-1.31.0-${{ runner.os }}-${{ hashFiles('scripts/fetch-onnxruntime.ts') }}
