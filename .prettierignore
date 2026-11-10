@@ -1,0 +1,9 @@
+target/
+node_modules/
+dist/
+.dev-data/
+src-tauri/
+crates/
+bun.lock
+LICENSE
+src/lib/components/ui/
