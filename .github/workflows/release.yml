@@ -30,7 +30,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ort's prebuilt ONNX Runtime is built against glibc >= 2.38 / GCC 13 and fails to link on 22.04.
+          # ort's prebuilt ONNX Runtime needs glibc >= 2.38 / GCC 13, so Linux builds run on 24.04 (glibc 2.39),
+          # which is also the minimum glibc for the AppImage and .deb.
           - os: ubuntu-24.04
             args: ""
           - os: windows-latest

@@ -74,7 +74,9 @@ The builds are not code-signed:
 - **macOS** (Apple Silicon): right-click the app, choose **Open**, then confirm. Intel Macs are not supported
   because ONNX Runtime ships no Intel macOS build.
 - **Windows**: when SmartScreen appears, click **More info → Run anyway**.
-- **Linux**: AppImage or `.deb`.
+- **Linux** (x86_64): AppImage or `.deb`. Needs glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 or later).
+  The AppImage bundles WebKitGTK; the `.deb` depends on `libwebkit2gtk-4.1-0`, which apt installs. Releases are
+  built on Ubuntu 24.04.
 
 On first launch Aloud offers two voice packs: **Natural** (354 MB download, best sound) and **Fast** (121 MB).
 Your Mac's or PC's processor does the work; the voice packs are downloaded once from GitHub and checked against fixed checksums.
