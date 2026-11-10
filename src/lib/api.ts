@@ -191,6 +191,7 @@ export interface AppStateDto {
   active: RenderProgress | null;
   gpuSupported: boolean;
   version: string;
+  startupNotices: string[];
 }
 
 export type PronScope = "book" | "global";

@@ -3,7 +3,10 @@ mod error;
 mod player;
 mod state;
 
-use aloud_core::{DataDir, project::ProjectStore, render::RenderService};
+use aloud_core::{
+    DataDir, fsx, project::ProjectStore, queue::QueueState, render::RenderService,
+    settings::Settings,
+};
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use tauri::{Emitter, Manager, WindowEvent};
 
@@ -52,6 +55,18 @@ pub fn run() {
                 None => DataDir::new(app.path().app_data_dir()?),
             };
             std::fs::create_dir_all(data.root())?;
+            // A corrupt file is kept as `.bak` and replaced by defaults, once, so the app starts.
+            let mut startup_notices: Vec<&'static str> = Vec::new();
+            match fsx::set_aside_if_corrupt::<Settings>(&data.settings()) {
+                Ok(true) => startup_notices.push("settings-reset"),
+                Ok(false) => {}
+                Err(e) => log::warn!("couldn't set aside settings.json: {e}"),
+            }
+            match fsx::set_aside_if_corrupt::<QueueState>(&data.queue()) {
+                Ok(true) => startup_notices.push("queue-reset"),
+                Ok(false) => {}
+                Err(e) => log::warn!("couldn't set aside queue.json: {e}"),
+            }
             let handle = app.handle().clone();
             let render = RenderService::new(
                 data.clone(),
@@ -70,6 +85,7 @@ pub fn run() {
                 download_cancel: AtomicBool::new(false),
                 downloading: AtomicBool::new(false),
                 pending_update: Mutex::new(None),
+                startup_notices: Mutex::new(startup_notices),
             }));
             Ok(())
         })

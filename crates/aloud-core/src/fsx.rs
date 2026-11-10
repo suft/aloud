@@ -43,6 +43,16 @@ pub fn read_json_or_default<T: DeserializeOwned + Default>(path: &Path) -> Resul
     Ok(read_json(path)?.unwrap_or_default())
 }
 
+/// Renames an unreadable JSON file to `<name>.bak` (replacing an older backup) so the caller
+/// falls back to defaults. Returns true when it did. Missing or valid files are left alone.
+pub fn set_aside_if_corrupt<T: DeserializeOwned>(path: &Path) -> io::Result<bool> {
+    if let Err(Error::Corrupt(_)) = read_json::<T>(path) {
+        fs::rename(path, path.with_extension("json.bak"))?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 /// Total size in bytes of all files below `dir` (0 when it does not exist).
 pub fn dir_size(dir: &Path) -> u64 {
     let Ok(rd) = fs::read_dir(dir) else { return 0 };
@@ -68,5 +78,22 @@ mod tests {
         assert_eq!(read_json::<Vec<u8>>(&p).unwrap(), Some(vec![1, 2, 3]));
         fs::write(&p, b"{nope").unwrap();
         assert!(matches!(read_json::<Vec<u8>>(&p), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
+    fn set_aside_keeps_the_corrupt_file_as_bak() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.json");
+        assert!(!set_aside_if_corrupt::<Vec<u8>>(&p).unwrap());
+        fs::write(&p, b"garbage").unwrap();
+        assert!(set_aside_if_corrupt::<Vec<u8>>(&p).unwrap());
+        assert!(!p.exists());
+        assert_eq!(
+            fs::read(dir.path().join("settings.json.bak")).unwrap(),
+            b"garbage"
+        );
+        write_json_atomic(&p, &vec![1u8]).unwrap();
+        assert!(!set_aside_if_corrupt::<Vec<u8>>(&p).unwrap());
+        assert!(p.exists());
     }
 }

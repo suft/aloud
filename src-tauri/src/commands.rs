@@ -18,7 +18,7 @@ use aloud_core::{
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     path::PathBuf,
-    sync::{Arc, atomic::Ordering},
+    sync::{Arc, PoisonError, atomic::Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Manager, State};
@@ -56,6 +56,7 @@ pub struct AppStateDto {
     active: Option<RenderProgress>,
     gpu_supported: bool,
     version: String,
+    startup_notices: Vec<&'static str>,
 }
 
 #[tauri::command]
@@ -69,6 +70,12 @@ pub async fn get_app_state(state: St<'_>) -> AppResult<AppStateDto> {
             active: s.render.active(),
             gpu_supported: tts::gpu_supported(),
             version: s.app.package_info().version.to_string(),
+            startup_notices: std::mem::take(
+                &mut *s
+                    .startup_notices
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner),
+            ),
         })
     })
     .await

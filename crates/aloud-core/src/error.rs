@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("This book's data is damaged — remove it and import again ({})", .0.display())]
+    #[error("{}", corrupt_message(.0))]
     Corrupt(PathBuf),
     #[error("{}", io_message(.0))]
     Io(#[from] std::io::Error),
@@ -18,6 +18,20 @@ pub enum Error {
     NotFound(String),
     #[error("{0}")]
     Other(String),
+}
+
+/// What to tell the user about an unreadable data file; the path itself isn't useful to them.
+fn corrupt_message(path: &Path) -> &'static str {
+    match path.file_name().and_then(|n| n.to_str()) {
+        Some("settings.json") => "Aloud's settings couldn't be read. Restart Aloud to reset them.",
+        Some("queue.json") => {
+            "Aloud's list of books to make couldn't be read. Restart Aloud to reset it."
+        }
+        Some("project.json" | "book.json" | "plan.json") => {
+            "This book's data is damaged. Remove it and import it again."
+        }
+        _ => "Some of Aloud's saved data couldn't be read.",
+    }
 }
 
 /// Plain-language text for an I/O failure; the raw error goes to the log, not the user.

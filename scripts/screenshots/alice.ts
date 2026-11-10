@@ -227,6 +227,7 @@ export function appState(s: Scenario): AppStateDto {
     active: s === "rendering" ? renderProgress() : null,
     gpuSupported: true,
     version: pkg.version,
+    startupNotices: [],
   };
 }
 

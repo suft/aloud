@@ -23,6 +23,8 @@ pub struct AppState {
     pub downloading: AtomicBool,
     /// Update found by the last check, kept so it can be installed without re-checking.
     pub pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
+    /// Codes for things that happened before the UI loaded; shown once by `get_app_state`.
+    pub startup_notices: Mutex<Vec<&'static str>>,
 }
 
 impl AppState {

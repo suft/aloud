@@ -24,6 +24,13 @@ interface DownloadState {
   error: string | null;
 }
 
+const STARTUP_NOTICES: Record<string, string> = {
+  "settings-reset":
+    "Aloud's settings couldn't be read, so they were reset. The old file was kept as settings.json.bak.",
+  "queue-reset":
+    "The list of books to make couldn't be read, so it was cleared. The old file was kept as queue.json.bak.",
+};
+
 class AppStore {
   ready = $state(false);
   bootError = $state<string | null>(null);
@@ -52,8 +59,11 @@ class AppStore {
   /** Loads app state; on failure keeps the message in `bootError` and returns false. */
   async boot(): Promise<boolean> {
     this.bootError = null;
+    let notices: string[];
     try {
-      render.boot(await this.refresh());
+      const state = await this.refresh();
+      render.boot(state);
+      notices = state.startupNotices;
     } catch (e) {
       this.bootError = errorMessage(e);
       return false;
@@ -61,6 +71,10 @@ class AppStore {
     const m = this.models;
     this.screen = (m.standard || m.fast) && m.voices ? { name: "library" } : { name: "onboarding" };
     this.ready = true;
+    for (const code of notices) {
+      const text = STARTUP_NOTICES[code];
+      if (text) toast.warning(text);
+    }
     return true;
   }
 
