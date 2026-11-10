@@ -17,7 +17,7 @@ use std::{
 
 pub use crate::export::FinishedInfo;
 use crate::{
-    error::Result,
+    error::{Error, Result},
     g2p::{Phonemize, Phonemizer},
     models,
     paths::DataDir,
@@ -165,22 +165,23 @@ impl RenderService {
         if let Ok(rd) = std::fs::read_dir(data.projects()) {
             for entry in rd.flatten() {
                 let id = entry.file_name().to_string_lossy().into_owned();
-                let Ok(mut p) = store.load(&id) else { continue };
-                let in_queue = queue.items.contains(&id);
-                let new = match p.status {
-                    ProjectStatus::Rendering | ProjectStatus::Exporting | ProjectStatus::Queued => {
-                        Some(if in_queue {
+                let _ = store.update(&id, |p| {
+                    let in_queue = queue.items.contains(&id);
+                    let new = match p.status {
+                        ProjectStatus::Rendering
+                        | ProjectStatus::Exporting
+                        | ProjectStatus::Queued => Some(if in_queue {
                             ProjectStatus::Queued
                         } else {
                             ProjectStatus::Paused
-                        })
+                        }),
+                        _ => None,
+                    };
+                    if let Some(s) = &new {
+                        p.status = s.clone();
                     }
-                    _ => None,
-                };
-                if let Some(s) = new {
-                    p.status = s;
-                    let _ = store.save(&mut p);
-                }
+                    Ok::<_, Error>(new.is_some())
+                });
             }
         }
 
@@ -242,26 +243,30 @@ impl RenderService {
     }
 
     pub(crate) fn set_status(&self, id: &str, status: ProjectStatus) {
-        if let Ok(mut p) = self.store.load(id) {
+        let saved = self.store.update(id, |p| {
             p.status = status;
-            let _ = self.store.save(&mut p);
+            Ok::<_, Error>(true)
+        });
+        if saved.is_ok() {
             self.events.project_changed(id);
         }
     }
 
     pub fn enqueue(&self, id: &str) -> Result<QueueState> {
-        let mut project = self.store.load(id)?;
+        self.store.update(id, |p| {
+            let idle = !matches!(
+                p.status,
+                ProjectStatus::Rendering | ProjectStatus::Exporting
+            );
+            if idle {
+                p.status = ProjectStatus::Queued;
+            }
+            Ok::<_, Error>(idle)
+        })?;
+        self.events.project_changed(id);
         let mut st = lock(&self.state);
         if !st.queue.items.iter().any(|i| i == id) {
             st.queue.items.push(id.to_string());
-        }
-        if !matches!(
-            project.status,
-            ProjectStatus::Rendering | ProjectStatus::Exporting
-        ) {
-            project.status = ProjectStatus::Queued;
-            self.store.save(&mut project)?;
-            self.events.project_changed(id);
         }
         self.persist_and_emit(&st);
         let q = st.queue.clone();
@@ -308,12 +313,18 @@ impl RenderService {
         drop(st);
         if running {
             self.wait_idle(Duration::from_secs(15));
-        } else if self
-            .store
-            .load(id)
-            .is_ok_and(|p| matches!(p.status, ProjectStatus::Queued))
-        {
-            self.set_status(id, ProjectStatus::Paused);
+        } else {
+            let mut changed = false;
+            let _ = self.store.update(id, |p| {
+                changed = matches!(p.status, ProjectStatus::Queued);
+                if changed {
+                    p.status = ProjectStatus::Paused;
+                }
+                Ok::<_, Error>(changed)
+            });
+            if changed {
+                self.events.project_changed(id);
+            }
         }
         q
     }

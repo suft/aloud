@@ -391,56 +391,57 @@ pub async fn update_project(
     let s = state.inner().clone();
     run(move || {
         ensure_idle(&s, &id)?;
-        let mut p = s.store.load(&id)?;
-        if let Some(m) = patch.meta {
-            if let Some(t) = m
-                .title
-                .map(|t| t.trim().to_string())
-                .filter(|t| !t.is_empty())
-            {
-                p.meta.title = t;
-            }
-            if let Some(a) = m.authors {
-                p.meta.authors = a
-                    .into_iter()
-                    .map(|a| a.trim().to_string())
-                    .filter(|a| !a.is_empty())
-                    .collect();
-            }
-            if let Some(d) = m.date {
-                p.meta.date = d.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
-            }
-            if let Some(d) = m.description {
-                p.meta.description = d.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
-            }
-        }
-        if let Some(v) = patch.voice {
-            if !voices::is_known(&v) {
-                return Err(AppError::new("That voice isn't available."));
-            }
-            p.voice = v;
-        }
-        if let Some(v) = patch.speed {
-            p.speed = (v.clamp(0.5, 2.0) * 100.0).round() / 100.0;
-        }
-        if let Some(v) = patch.intro {
-            p.intro = v;
-        }
-        for c in patch.chapters.into_iter().flatten() {
-            if let Some(sel) = p.chapters.iter_mut().find(|x| x.id == c.id) {
-                if let Some(t) = c
+        s.store.update(&id, |p| {
+            if let Some(m) = patch.meta {
+                if let Some(t) = m
                     .title
                     .map(|t| t.trim().to_string())
                     .filter(|t| !t.is_empty())
                 {
-                    sel.title = t;
+                    p.meta.title = t;
                 }
-                if let Some(i) = c.included {
-                    sel.included = i;
+                if let Some(a) = m.authors {
+                    p.meta.authors = a
+                        .into_iter()
+                        .map(|a| a.trim().to_string())
+                        .filter(|a| !a.is_empty())
+                        .collect();
+                }
+                if let Some(d) = m.date {
+                    p.meta.date = d.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
+                }
+                if let Some(d) = m.description {
+                    p.meta.description = d.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
                 }
             }
-        }
-        s.store.save(&mut p)?;
+            if let Some(v) = patch.voice {
+                if !voices::is_known(&v) {
+                    return Err(AppError::new("That voice isn't available."));
+                }
+                p.voice = v;
+            }
+            if let Some(v) = patch.speed {
+                p.speed = (v.clamp(0.5, 2.0) * 100.0).round() / 100.0;
+            }
+            if let Some(v) = patch.intro {
+                p.intro = v;
+            }
+            for c in patch.chapters.into_iter().flatten() {
+                if let Some(sel) = p.chapters.iter_mut().find(|x| x.id == c.id) {
+                    if let Some(t) = c
+                        .title
+                        .map(|t| t.trim().to_string())
+                        .filter(|t| !t.is_empty())
+                    {
+                        sel.title = t;
+                    }
+                    if let Some(i) = c.included {
+                        sel.included = i;
+                    }
+                }
+            }
+            Ok::<_, AppError>(true)
+        })?;
         refresh_plan(&s, &id);
         s.emit_project(&id);
         detail(&s, &id)
@@ -452,9 +453,10 @@ pub async fn update_project(
 pub async fn set_cover(state: St<'_>, id: String, path: PathBuf) -> AppResult<ProjectDetail> {
     let s = state.inner().clone();
     run(move || {
-        let mut p = s.store.load(&id)?;
-        epub::set_cover(&s.data, &mut p, &path)?;
-        s.store.save(&mut p)?;
+        s.store.update(&id, |p| {
+            epub::set_cover(&s.data, p, &path)?;
+            Ok::<_, AppError>(true)
+        })?;
         s.emit_project(&id);
         detail(&s, &id)
     })
@@ -566,12 +568,14 @@ pub async fn get_tricky_words(state: St<'_>, id: String) -> AppResult<Vec<Tricky
 pub async fn dismiss_word(state: St<'_>, id: String, word: String) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
-        let mut p = s.store.load(&id)?;
         let w = word.trim().to_lowercase();
-        if !w.is_empty() && !p.dismissed_words.contains(&w) {
-            p.dismissed_words.push(w);
-            s.store.save(&mut p)?;
-        }
+        s.store.update(&id, |p| {
+            let add = !w.is_empty() && !p.dismissed_words.contains(&w);
+            if add {
+                p.dismissed_words.push(w.clone());
+            }
+            Ok::<_, AppError>(add)
+        })?;
         Ok(())
     })
     .await
@@ -611,9 +615,10 @@ fn edit_prons(
         Scope::Book => {
             let id = project_id.ok_or_else(|| AppError::new("Choose a book first."))?;
             ensure_idle(s, id)?;
-            let mut p = s.store.load(id)?;
-            f(&mut p.pronunciations);
-            s.store.save(&mut p)?;
+            let p = s.store.update(id, |p| {
+                f(&mut p.pronunciations);
+                Ok::<_, AppError>(true)
+            })?;
             refresh_plan(s, id);
             s.emit_project(id);
             Ok(p.pronunciations)
@@ -917,11 +922,12 @@ pub async fn clear_project_cache(state: St<'_>, id: String) -> AppResult<()> {
             _ => {}
         }
         // Done stays Done: the exported file is untouched.
-        if let Ok(mut p) = s.store.load(&id)
-            && matches!(p.status, ProjectStatus::Queued | ProjectStatus::Paused)
-        {
-            s.store.save(&mut p)?;
-        }
+        s.store.update(&id, |p| {
+            Ok::<_, AppError>(matches!(
+                p.status,
+                ProjectStatus::Queued | ProjectStatus::Paused
+            ))
+        })?;
         s.emit_project(&id);
         Ok(())
     })

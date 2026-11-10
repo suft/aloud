@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
+    sync::{Arc, LazyLock, Mutex, PoisonError},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -167,6 +168,11 @@ impl ProjectSummary {
     }
 }
 
+/// One lock per project directory, shared by every `ProjectStore` in the process (the app state,
+/// the render service and the importer each build their own store).
+static PROJECT_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> =
+    LazyLock::new(Default::default);
+
 #[derive(Debug, Clone)]
 pub struct ProjectStore {
     data: DataDir,
@@ -175,6 +181,15 @@ pub struct ProjectStore {
 impl ProjectStore {
     pub fn new(data: DataDir) -> Self {
         ProjectStore { data }
+    }
+
+    fn project_lock(&self, id: &str) -> Arc<Mutex<()>> {
+        PROJECT_LOCKS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(self.data.project(id))
+            .or_default()
+            .clone()
     }
 
     pub fn data(&self) -> &DataDir {
@@ -193,10 +208,34 @@ impl ProjectStore {
         fsx::read_json(&self.project_file(id))?.ok_or_else(|| Error::NotFound(id.to_string()))
     }
 
-    pub fn save(&self, p: &mut Project) -> Result<()> {
+    fn write(&self, p: &mut Project) -> Result<()> {
         p.updated_at = now_secs();
         fsx::write_json_atomic(&self.project_file(&p.id), p)?;
         Ok(())
+    }
+
+    /// Writes a new project. Existing projects go through `update`.
+    pub fn save(&self, p: &mut Project) -> Result<()> {
+        let lock = self.project_lock(&p.id);
+        let _g = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        self.write(p)
+    }
+
+    /// Loads project `id`, lets `f` change it and saves it if `f` returns true, holding the
+    /// project's lock so concurrent writers can't interleave or overwrite each other.
+    /// Returns the project as stored. Never call another `ProjectStore` method inside `f`.
+    pub fn update<E: From<Error>>(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut Project) -> std::result::Result<bool, E>,
+    ) -> std::result::Result<Project, E> {
+        let lock = self.project_lock(id);
+        let _g = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut p = self.load(id)?;
+        if f(&mut p)? {
+            self.write(&mut p)?;
+        }
+        Ok(p)
     }
 
     pub fn book(&self, id: &str) -> Result<Book> {
@@ -223,6 +262,8 @@ impl ProjectStore {
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
+        let lock = self.project_lock(id);
+        let _g = lock.lock().unwrap_or_else(PoisonError::into_inner);
         match fs::remove_dir_all(self.data.project(id)) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -308,5 +349,60 @@ mod tests {
         let list = store.list(&settings);
         let ids: Vec<(&str, bool)> = list.iter().map(|s| (s.id.as_str(), s.damaged)).collect();
         assert_eq!(ids, [("good", false), ("bad", true)]);
+    }
+
+    #[test]
+    fn concurrent_updates_never_lose_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path().to_path_buf());
+        let id = "0000000000000001";
+        let book = Book {
+            meta: BookMeta::default(),
+            chapters: vec![],
+        };
+        let mut p = Project::new(id, "b.epub".into(), &book, &Settings::default());
+        ProjectStore::new(data.clone()).save(&mut p).unwrap();
+
+        let mut threads = Vec::new();
+        for t in 0..8 {
+            let store = ProjectStore::new(data.clone());
+            threads.push(std::thread::spawn(move || {
+                for i in 0..50 {
+                    store
+                        .update(id, |p| {
+                            p.dismissed_words.push(format!("{t}-{i}"));
+                            Ok::<_, Error>(true)
+                        })
+                        .unwrap();
+                }
+            }));
+        }
+        let store = ProjectStore::new(data.clone());
+        threads.push(std::thread::spawn(move || {
+            for i in 0..50 {
+                store
+                    .update(id, |p| {
+                        p.status = if i % 2 == 0 {
+                            ProjectStatus::Queued
+                        } else {
+                            ProjectStatus::Paused
+                        };
+                        Ok::<_, Error>(true)
+                    })
+                    .unwrap();
+            }
+        }));
+        for t in threads {
+            t.join().unwrap();
+        }
+
+        let store = ProjectStore::new(data.clone());
+        assert_eq!(store.load(id).unwrap().dismissed_words.len(), 400);
+        let leftovers = fs::read_dir(data.project(id))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "tmp"))
+            .count();
+        assert_eq!(leftovers, 0);
     }
 }

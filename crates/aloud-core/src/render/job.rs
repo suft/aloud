@@ -147,9 +147,10 @@ impl RenderService {
             panic!("injected test panic");
         }
         let settings = Settings::load(&self.data)?;
-        let mut project = self.store.load(id)?;
-        project.status = ProjectStatus::Rendering;
-        self.store.save(&mut project)?;
+        let project = self.store.update(id, |p| {
+            p.status = ProjectStatus::Rendering;
+            Ok::<_, Error>(true)
+        })?;
         self.events.project_changed(id);
 
         let _awake = settings
@@ -291,13 +292,14 @@ impl RenderService {
             }
         })?;
 
-        let mut project = self.store.load(id)?;
-        project.status = ProjectStatus::Done {
-            output: info.output.clone(),
-            finished_at: now_secs(),
-            inputs_hash: project.export_signature(&plan.inputs_hash),
-        };
-        self.store.save(&mut project)?;
+        self.store.update(id, |p| {
+            p.status = ProjectStatus::Done {
+                output: info.output.clone(),
+                finished_at: now_secs(),
+                inputs_hash: p.export_signature(&plan.inputs_hash),
+            };
+            Ok::<_, Error>(true)
+        })?;
         self.events.project_changed(id);
         Ok(JobEnd::Done(info))
     }

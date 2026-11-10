@@ -12,13 +12,18 @@ pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()>
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension("json.tmp");
-    let mut f = File::create(&tmp)?;
-    serde_json::to_writer(io::BufWriter::new(&mut f), value).map_err(io::Error::other)?;
-    f.flush()?;
-    f.sync_all()?;
-    drop(f);
-    fs::rename(&tmp, path)
+    let tmp = path.with_extension(format!("json.{}.tmp", uuid::Uuid::new_v4().simple()));
+    let write = || -> io::Result<()> {
+        let mut f = File::create(&tmp)?;
+        serde_json::to_writer(io::BufWriter::new(&mut f), value).map_err(io::Error::other)?;
+        f.flush()?;
+        f.sync_all()?;
+        drop(f);
+        fs::rename(&tmp, path)
+    };
+    write().inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
 }
 
 /// Reads JSON from `path`. A missing file yields `None`; a corrupt file is `Error::Corrupt`.
