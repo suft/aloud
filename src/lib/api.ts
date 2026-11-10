@@ -89,6 +89,8 @@ export interface ProjectSummary {
   /** Fraction (0..1) of included audio already rendered. */
   progress: number;
   updatedAt: number;
+  /** The saved data can't be read; the book can only be removed. */
+  damaged: boolean;
 }
 
 export interface BookMeta {

@@ -146,6 +146,25 @@ pub struct ProjectSummary {
     pub status: ProjectStatus,
     pub progress: f32,
     pub updated_at: i64,
+    /// The project's data can't be read; the only useful action is to remove it.
+    #[serde(default)]
+    pub damaged: bool,
+}
+
+impl ProjectSummary {
+    fn damaged(id: String) -> Self {
+        ProjectSummary {
+            id,
+            title: String::new(),
+            authors: vec![],
+            cover_path: None,
+            accent: None,
+            status: ProjectStatus::Draft,
+            progress: 0.0,
+            updated_at: 0,
+            damaged: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -237,23 +256,57 @@ impl ProjectStore {
             status: p.status.clone(),
             progress,
             updated_at: p.updated_at,
+            damaged: false,
         }
     }
 
-    /// All projects, newest first. Unreadable projects are skipped.
+    /// All projects, newest first. A project whose data can't be read is listed as damaged
+    /// (last) so it can be removed; a directory without `project.json` is an import in progress.
     pub fn list(&self, settings: &Settings) -> Vec<ProjectSummary> {
         let Ok(rd) = fs::read_dir(self.data.projects()) else {
             return Vec::new();
         };
         let mut out: Vec<ProjectSummary> = rd
             .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
             .filter_map(|e| {
                 let id = e.file_name().to_string_lossy().into_owned();
-                self.load(&id).ok()
+                match self.load(&id) {
+                    Ok(p) => Some(self.summary(&p, settings)),
+                    Err(Error::NotFound(_)) => None,
+                    Err(_) => Some(ProjectSummary::damaged(id)),
+                }
             })
-            .map(|p| self.summary(&p, settings))
             .collect();
         out.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unreadable_projects_are_listed_as_damaged() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path().to_path_buf());
+        let store = ProjectStore::new(data.clone());
+        let settings = Settings::default();
+        let book = Book {
+            meta: BookMeta::default(),
+            chapters: vec![],
+        };
+        let mut good = Project::new("good", "b.epub".into(), &book, &settings);
+        store.save(&mut good).unwrap();
+
+        fs::create_dir_all(data.project("bad")).unwrap();
+        fs::write(data.project("bad").join("project.json"), "{nope").unwrap();
+        fs::create_dir_all(data.project("partial")).unwrap();
+        fs::write(data.projects().join("stray.txt"), "x").unwrap();
+
+        let list = store.list(&settings);
+        let ids: Vec<(&str, bool)> = list.iter().map(|s| (s.id.as_str(), s.damaged)).collect();
+        assert_eq!(ids, [("good", false), ("bad", true)]);
     }
 }

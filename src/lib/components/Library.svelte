@@ -80,7 +80,9 @@
 <ConfirmDialog
   bind:open={confirmOpen}
   title="Remove book"
-  description={`Remove “${removing?.title ?? ""}” from Aloud? Your exported audiobook file is kept.`}
+  description={removing?.damaged
+    ? "Remove this damaged book from Aloud? Its saved data is deleted; your exported audiobook file is kept."
+    : `Remove “${removing?.title ?? ""}” from Aloud? Your exported audiobook file is kept.`}
   confirmLabel="Remove"
   destructive
   onconfirm={remove}

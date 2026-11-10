@@ -165,6 +165,7 @@ export function projectSummary(s: Scenario): ProjectSummary {
     status: status(s),
     progress: s === "rendering" ? renderProgress().fraction : 0,
     updatedAt: 1794278800,
+    damaged: false,
   };
 }
 

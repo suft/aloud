@@ -31,13 +31,23 @@
 </script>
 
 <div class="group relative transition-transform duration-200 hover:scale-[1.02]">
-  <button type="button" class="block w-full text-left" onclick={open}>
+  <button type="button" class="block w-full text-left" onclick={book.damaged ? onremove : open}>
     <div
       class="relative aspect-[2/3] overflow-hidden rounded-xl border border-border/40 shadow-md transition-shadow duration-200 group-hover:shadow-xl"
     >
-      <Cover path={book.coverPath} title={book.title} accent={book.accent} />
+      {#if book.damaged}
+        <Cover path={null} title="Damaged book" accent={null} />
+      {:else}
+        <Cover path={book.coverPath} title={book.title} accent={book.accent} />
+      {/if}
 
-      {#if status.state !== "draft"}
+      {#if book.damaged}
+        <span
+          class="absolute bottom-3 left-2 flex items-center gap-1 rounded-full bg-destructive/90 px-2 py-0.5 text-xs font-medium text-white backdrop-blur"
+        >
+          Damaged
+        </span>
+      {:else if status.state !== "draft"}
         <span
           class={cn(
             "absolute bottom-3 left-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white backdrop-blur",
@@ -70,8 +80,13 @@
       {/if}
     </div>
     <div class="mt-3 space-y-0.5 px-0.5">
-      <div class="line-clamp-2 text-sm leading-snug font-medium">{book.title}</div>
-      <div class="truncate text-xs text-muted-foreground">{book.authors.join(", ")}</div>
+      {#if book.damaged}
+        <div class="line-clamp-2 text-sm leading-snug font-medium">Damaged book</div>
+        <div class="truncate text-xs text-muted-foreground">This book's data can't be read.</div>
+      {:else}
+        <div class="line-clamp-2 text-sm leading-snug font-medium">{book.title}</div>
+        <div class="truncate text-xs text-muted-foreground">{book.authors.join(", ")}</div>
+      {/if}
     </div>
   </button>
 
@@ -87,13 +102,15 @@
         <Ellipsis />
       </DropdownMenu.Trigger>
       <DropdownMenu.Content align="end" class="w-56">
-        <DropdownMenu.Item onSelect={open}>Open</DropdownMenu.Item>
-        {#if status.state === "done"}
-          <DropdownMenu.Item onSelect={() => attempt(revealItemInDir(status.output))}>
-            Show audiobook in folder
-          </DropdownMenu.Item>
+        {#if !book.damaged}
+          <DropdownMenu.Item onSelect={open}>Open</DropdownMenu.Item>
+          {#if status.state === "done"}
+            <DropdownMenu.Item onSelect={() => attempt(revealItemInDir(status.output))}>
+              Show audiobook in folder
+            </DropdownMenu.Item>
+          {/if}
+          <DropdownMenu.Separator />
         {/if}
-        <DropdownMenu.Separator />
         <DropdownMenu.Item variant="destructive" onSelect={onremove}>Remove</DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
