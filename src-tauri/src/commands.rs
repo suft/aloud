@@ -9,7 +9,7 @@ use aloud_core::{
     project::{Project, ProjectStatus, ProjectSummary},
     pron::{Dictionary, PronEntry},
     queue::QueueState,
-    render::{Direction, Phase, RenderProgress, cache},
+    render::{Direction, RenderProgress, cache},
     settings::{ModelVariant, Performance, Settings, Theme},
     speed, tts,
     update::UpdateState,
@@ -579,27 +579,9 @@ pub async fn get_tricky_words(state: St<'_>, id: String) -> AppResult<Vec<Tricky
     let s = state.inner().clone();
     run(move || {
         check_id(&id)?;
-        let app = s.app.clone();
-        let pid = id.clone();
-        let plan = s.render.ensure_plan(
-            &id,
-            &move |done, total| {
-                let _ = app.emit(
-                    "render-progress",
-                    RenderProgress {
-                        project_id: pid.clone(),
-                        phase: Phase::Planning,
-                        done_units: done as u64,
-                        total_units: total as u64,
-                        fraction: done as f32 / total.max(1) as f32,
-                        chapters: Vec::new(),
-                        eta_secs: None,
-                        realtime_factor: None,
-                    },
-                );
-            },
-            &AtomicBool::new(false),
-        )?;
+        let plan = s
+            .render
+            .ensure_plan(&id, &|_, _| {}, &AtomicBool::new(false))?;
         let p = s.store.load(&id)?;
         let book = s.store.book(&id)?;
         Ok(plan::tricky_words(&book, &plan, &p.dismissed_words))
