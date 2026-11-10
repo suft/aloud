@@ -1,0 +1,844 @@
+//! Tauri commands. Every command runs its core work on the blocking pool and returns
+//! `{ message }` errors written for non-developers.
+
+use aloud_core::{
+    book::ChapterKind,
+    epub, export, fsx, models,
+    models::ModelsStatus,
+    plan::{self, Plan, Segment, TrickyWord},
+    project::{Project, ProjectStatus, ProjectSummary},
+    pron::PronEntry,
+    queue::QueueState,
+    render::{Direction, Phase, RenderProgress, cache},
+    settings::{ModelVariant, Performance, Settings, Theme},
+    tts,
+    voices::{self, VoiceInfo},
+};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::{
+    path::PathBuf,
+    sync::{Arc, atomic::Ordering},
+};
+use tauri::{Emitter, State};
+use tauri_plugin_opener::OpenerExt;
+
+use crate::{
+    error::{AppError, AppResult, run},
+    player::{Cmd, Seg, file_seg},
+    state::AppState,
+};
+
+type St<'a> = State<'a, Arc<AppState>>;
+
+const WORDS_PER_MINUTE: f64 = 175.0;
+const SAMPLE_TEXT: &str = "Once upon a time, in a quiet town by the sea, there lived a girl who loved stories more than anything in the world.";
+const BUSY: &str = "Pause first to change this.";
+
+fn double_option<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Some(Option::deserialize(d)?))
+}
+
+// ---------- app state & settings ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStateDto {
+    settings: Settings,
+    models: ModelsStatus,
+    queue: QueueState,
+    active: Option<RenderProgress>,
+    gpu_supported: bool,
+    version: &'static str,
+}
+
+#[tauri::command]
+pub async fn get_app_state(state: St<'_>) -> AppResult<AppStateDto> {
+    let s = state.inner().clone();
+    run(move || {
+        Ok(AppStateDto {
+            settings: s.settings(),
+            models: models::status(&s.data),
+            queue: s.render.queue(),
+            active: s.render.active(),
+            gpu_supported: tts::gpu_supported(),
+            version: env!("CARGO_PKG_VERSION"),
+        })
+    })
+    .await
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SettingsPatch {
+    model: Option<ModelVariant>,
+    output_dir: Option<PathBuf>,
+    performance: Option<Performance>,
+    gpu: Option<bool>,
+    keep_awake: Option<bool>,
+    notify_on_finish: Option<bool>,
+    default_voice: Option<String>,
+    default_speed: Option<f32>,
+    theme: Option<Theme>,
+}
+
+#[tauri::command]
+pub async fn update_settings(state: St<'_>, patch: SettingsPatch) -> AppResult<Settings> {
+    let s = state.inner().clone();
+    run(move || {
+        if let Some(v) = &patch.default_voice
+            && !voices::is_known(v)
+        {
+            return Err(AppError::new("That voice isn't available."));
+        }
+        let (settings, ()) = s.update_settings(|c| {
+            if let Some(v) = patch.model {
+                c.model = v;
+            }
+            if let Some(v) = patch.output_dir {
+                c.output_dir = v;
+            }
+            if let Some(v) = patch.performance {
+                c.performance = v;
+            }
+            if let Some(v) = patch.gpu {
+                c.gpu = v;
+            }
+            if let Some(v) = patch.keep_awake {
+                c.keep_awake = v;
+            }
+            if let Some(v) = patch.notify_on_finish {
+                c.notify_on_finish = v;
+            }
+            if let Some(v) = patch.default_voice {
+                c.default_voice = v;
+            }
+            if let Some(v) = patch.default_speed {
+                c.default_speed = v.clamp(0.5, 2.0);
+            }
+            if let Some(v) = patch.theme {
+                c.theme = v;
+            }
+        })?;
+        Ok(settings)
+    })
+    .await
+}
+
+// ---------- voice packs ----------
+
+#[derive(Serialize, Clone)]
+struct DownloadDone {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+#[tauri::command]
+pub async fn download_models(state: St<'_>, variant: ModelVariant) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        if s.downloading.swap(true, Ordering::SeqCst) {
+            return Err(AppError::new("A download is already in progress."));
+        }
+        s.download_cancel.store(false, Ordering::SeqCst);
+        let app = s.app.clone();
+        let result = models::download(&s.data, variant, &s.download_cancel, &|p| {
+            let _ = app.emit("model-download", p);
+        });
+        s.downloading.store(false, Ordering::SeqCst);
+        let (ok, message) = match &result {
+            Ok(()) => (true, None),
+            Err(models::DownloadError::Cancelled) => {
+                (false, Some("Download cancelled".to_string()))
+            }
+            Err(e) => (false, Some(e.to_string())),
+        };
+        let _ = s.app.emit(
+            "model-download-done",
+            DownloadDone {
+                ok,
+                message: message.clone(),
+            },
+        );
+        match result {
+            Ok(()) => Ok(()),
+            Err(models::DownloadError::Cancelled) => Err(AppError::new("Download cancelled")),
+            Err(e) => Err(e.into()),
+        }
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn cancel_download(state: St<'_>) {
+    state.download_cancel.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub async fn remove_model(state: St<'_>, variant: ModelVariant) -> AppResult<ModelsStatus> {
+    let s = state.inner().clone();
+    run(move || {
+        if s.settings().model == variant {
+            return Err(AppError::new(
+                "That voice pack is in use. Switch to the other one first.",
+            ));
+        }
+        models::remove(&s.data, variant)?;
+        Ok(models::status(&s.data))
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn list_voices() -> Vec<VoiceInfo> {
+    voices::CATALOG.to_vec()
+}
+
+// ---------- projects ----------
+
+#[tauri::command]
+pub async fn list_projects(state: St<'_>) -> AppResult<Vec<ProjectSummary>> {
+    let s = state.inner().clone();
+    run(move || Ok(s.store.list(&s.settings()))).await
+}
+
+#[tauri::command]
+pub async fn import_epub(state: St<'_>, path: PathBuf) -> AppResult<ProjectSummary> {
+    let s = state.inner().clone();
+    run(move || {
+        let summary = epub::import(&s.data, &path)?;
+        s.emit_project(&summary.id);
+        Ok(summary)
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChapterDetail {
+    id: String,
+    title: String,
+    kind: ChapterKind,
+    included: bool,
+    words: u32,
+    est_secs: u64,
+    rendered_fraction: f32,
+    playable: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDetail {
+    project: Project,
+    cover_path: Option<PathBuf>,
+    word_count: u32,
+    estimated_secs: u64,
+    chapters: Vec<ChapterDetail>,
+    stale: bool,
+    redo_fraction: f32,
+    output_file_name: String,
+}
+
+fn est_secs(words: u32, speed: f32) -> u64 {
+    (words as f64 / WORDS_PER_MINUTE * 60.0 / speed.max(0.1) as f64).round() as u64
+}
+
+fn detail(s: &AppState, id: &str) -> AppResult<ProjectDetail> {
+    let settings = s.settings();
+    let project = s.store.load(id)?;
+    let book = s.store.book(id)?;
+    let current = plan::compute_inputs_hash(&project, &settings);
+    let mut plan = s.store.load_plan(id).ok().flatten();
+    if project.is_stale(&settings) && plan.as_ref().is_some_and(|p| p.inputs_hash != current) {
+        // The plan is what tells how much would have to be redone.
+        plan = s.render.ensure_plan(id, &|_, _| {}).ok();
+    }
+    let plan = plan.filter(|p| p.inputs_hash == current);
+    let audio = s.data.project_audio(id);
+    let included = project.included_ids();
+
+    let mut word_count = 0;
+    let mut estimated = 0;
+    let chapters = project
+        .chapters
+        .iter()
+        .map(|sel| {
+            let ch = book.chapters.iter().find(|c| c.id == sel.id);
+            let words = ch.map_or(0, |c| c.words);
+            let est = est_secs(words, project.speed);
+            if sel.included {
+                word_count += words;
+                estimated += est;
+            }
+            let (mut total, mut done, mut speech, mut all) = (0u64, 0u64, 0usize, true);
+            if let Some(pc) = plan
+                .as_ref()
+                .and_then(|p| p.chapters.iter().find(|c| c.chapter_id == sel.id))
+            {
+                for seg in &pc.segments {
+                    if let Segment::Speech { key, units, .. } = seg {
+                        speech += 1;
+                        total += *units as u64;
+                        if cache::exists(&audio, key) {
+                            done += *units as u64;
+                        } else {
+                            all = false;
+                        }
+                    }
+                }
+            }
+            ChapterDetail {
+                id: sel.id.clone(),
+                title: sel.title.clone(),
+                kind: ch.map_or(ChapterKind::Body, |c| c.kind),
+                included: sel.included,
+                words,
+                est_secs: est,
+                rendered_fraction: if total == 0 {
+                    0.0
+                } else {
+                    done as f32 / total as f32
+                },
+                playable: speech > 0 && all,
+            }
+        })
+        .collect();
+
+    let redo_fraction = plan
+        .as_ref()
+        .map_or(1.0, |p| 1.0 - cache::cached_fraction(p, &included, &audio));
+    Ok(ProjectDetail {
+        cover_path: project.cover_path(&s.data),
+        word_count,
+        estimated_secs: estimated,
+        chapters,
+        stale: project.is_stale(&settings),
+        redo_fraction,
+        output_file_name: export::output_file_name(&project),
+        project,
+    })
+}
+
+#[tauri::command]
+pub async fn get_project(state: St<'_>, id: String) -> AppResult<ProjectDetail> {
+    let s = state.inner().clone();
+    run(move || detail(&s, &id)).await
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct MetaPatch {
+    title: Option<String>,
+    authors: Option<Vec<String>>,
+    #[serde(deserialize_with = "double_option")]
+    date: Option<Option<String>>,
+    #[serde(deserialize_with = "double_option")]
+    description: Option<Option<String>>,
+}
+
+#[derive(Deserialize)]
+struct ChapterPatch {
+    id: String,
+    title: Option<String>,
+    included: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct ProjectPatch {
+    meta: Option<MetaPatch>,
+    voice: Option<String>,
+    speed: Option<f32>,
+    intro: Option<bool>,
+    chapters: Option<Vec<ChapterPatch>>,
+}
+
+fn ensure_idle(s: &AppState, id: &str) -> AppResult<()> {
+    if s.render.is_active(id) {
+        Err(AppError::new(BUSY))
+    } else {
+        Ok(())
+    }
+}
+
+/// After a change that affects the audio, rebuild an existing plan so "% to redo" is exact.
+fn refresh_plan(s: &AppState, id: &str) {
+    if s.store.plan_path(id).exists() {
+        let _ = s.render.ensure_plan(id, &|_, _| {});
+    }
+}
+
+#[tauri::command]
+pub async fn update_project(
+    state: St<'_>,
+    id: String,
+    patch: ProjectPatch,
+) -> AppResult<ProjectDetail> {
+    let s = state.inner().clone();
+    run(move || {
+        ensure_idle(&s, &id)?;
+        let mut p = s.store.load(&id)?;
+        if let Some(m) = patch.meta {
+            if let Some(t) = m
+                .title
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+            {
+                p.meta.title = t;
+            }
+            if let Some(a) = m.authors {
+                p.meta.authors = a
+                    .into_iter()
+                    .map(|a| a.trim().to_string())
+                    .filter(|a| !a.is_empty())
+                    .collect();
+            }
+            if let Some(d) = m.date {
+                p.meta.date = d.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
+            }
+            if let Some(d) = m.description {
+                p.meta.description = d.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
+            }
+        }
+        if let Some(v) = patch.voice {
+            if !voices::is_known(&v) {
+                return Err(AppError::new("That voice isn't available."));
+            }
+            p.voice = v;
+        }
+        if let Some(v) = patch.speed {
+            p.speed = (v.clamp(0.5, 2.0) * 100.0).round() / 100.0;
+        }
+        if let Some(v) = patch.intro {
+            p.intro = v;
+        }
+        for c in patch.chapters.into_iter().flatten() {
+            if let Some(sel) = p.chapters.iter_mut().find(|x| x.id == c.id) {
+                if let Some(t) = c
+                    .title
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                {
+                    sel.title = t;
+                }
+                if let Some(i) = c.included {
+                    sel.included = i;
+                }
+            }
+        }
+        s.store.save(&mut p)?;
+        refresh_plan(&s, &id);
+        s.emit_project(&id);
+        detail(&s, &id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_cover(state: St<'_>, id: String, path: PathBuf) -> AppResult<ProjectDetail> {
+    let s = state.inner().clone();
+    run(move || {
+        let mut p = s.store.load(&id)?;
+        epub::set_cover(&s.data, &mut p, &path)?;
+        s.store.save(&mut p)?;
+        s.emit_project(&id);
+        detail(&s, &id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_project(state: St<'_>, id: String) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        s.render.cancel(&id);
+        s.player.send(Cmd::Stop);
+        s.store.delete(&id)?;
+        s.emit_project(&id);
+        Ok(())
+    })
+    .await
+}
+
+// ---------- previews & pronunciations ----------
+
+fn require_models(s: &AppState) -> AppResult<()> {
+    if models::status(&s.data).ready(s.settings().model) {
+        Ok(())
+    } else {
+        Err(AppError::new("Download a voice pack first."))
+    }
+}
+
+fn play_preview(
+    s: &AppState,
+    project_id: Option<&str>,
+    voice: &str,
+    speed: f32,
+    text: &str,
+) -> AppResult<()> {
+    require_models(s)?;
+    let pcm = s.render.preview(project_id, voice, speed, text)?;
+    s.player.send(Cmd::Play {
+        project_id: None,
+        chapter_id: None,
+        title: "Preview".into(),
+        segs: vec![Seg::Mem(pcm.into())],
+        start_ms: 0,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn preview_voice(
+    state: St<'_>,
+    project_id: Option<String>,
+    voice: String,
+    speed: f32,
+    text: Option<String>,
+) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        if !voices::is_known(&voice) {
+            return Err(AppError::new("That voice isn't available."));
+        }
+        let text = text
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| SAMPLE_TEXT.into());
+        play_preview(&s, project_id.as_deref(), &voice, speed, &text)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn test_pronunciation(state: St<'_>, project_id: String, text: String) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        let p = s.store.load(&project_id)?;
+        play_preview(&s, Some(&project_id), &p.voice, p.speed, &text)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_tricky_words(state: St<'_>, id: String) -> AppResult<Vec<TrickyWord>> {
+    let s = state.inner().clone();
+    run(move || {
+        let app = s.app.clone();
+        let pid = id.clone();
+        let plan = s.render.ensure_plan(&id, &move |done, total| {
+            let _ = app.emit(
+                "render-progress",
+                RenderProgress {
+                    project_id: pid.clone(),
+                    phase: Phase::Planning,
+                    done_units: done as u64,
+                    total_units: total as u64,
+                    fraction: done as f32 / total.max(1) as f32,
+                    chapters: Vec::new(),
+                    eta_secs: None,
+                    realtime_factor: None,
+                },
+            );
+        })?;
+        let p = s.store.load(&id)?;
+        let book = s.store.book(&id)?;
+        Ok(plan::tricky_words(&book, &plan, &p.dismissed_words))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn dismiss_word(state: St<'_>, id: String, word: String) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        let mut p = s.store.load(&id)?;
+        let w = word.trim().to_lowercase();
+        if !w.is_empty() && !p.dismissed_words.contains(&w) {
+            p.dismissed_words.push(w);
+            s.store.save(&mut p)?;
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum Scope {
+    Book,
+    Global,
+}
+
+fn upsert_entry(list: &mut Vec<PronEntry>, entry: PronEntry) {
+    match list.iter().position(|e| e.id == entry.id) {
+        Some(i) => list[i] = entry.clone(),
+        None => list.push(entry.clone()),
+    }
+    list.retain(|e| e.id == entry.id || !e.word.eq_ignore_ascii_case(&entry.word));
+}
+
+/// Applies `f` to the pronunciation list of `scope` and returns the resulting list.
+fn edit_prons(
+    s: &AppState,
+    scope: Scope,
+    project_id: Option<&str>,
+    f: impl FnOnce(&mut Vec<PronEntry>),
+) -> AppResult<Vec<PronEntry>> {
+    match scope {
+        Scope::Global => {
+            let (settings, ()) = s.update_settings(|c| f(&mut c.pronunciations))?;
+            if let Some(id) = project_id {
+                refresh_plan(s, id);
+                s.emit_project(id);
+            }
+            Ok(settings.pronunciations)
+        }
+        Scope::Book => {
+            let id = project_id.ok_or_else(|| AppError::new("Choose a book first."))?;
+            ensure_idle(s, id)?;
+            let mut p = s.store.load(id)?;
+            f(&mut p.pronunciations);
+            s.store.save(&mut p)?;
+            refresh_plan(s, id);
+            s.emit_project(id);
+            Ok(p.pronunciations)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn upsert_pronunciation(
+    state: St<'_>,
+    scope: Scope,
+    project_id: Option<String>,
+    mut entry: PronEntry,
+) -> AppResult<Vec<PronEntry>> {
+    let s = state.inner().clone();
+    run(move || {
+        entry.word = entry.word.trim().to_string();
+        entry.validate()?;
+        edit_prons(&s, scope, project_id.as_deref(), |l| upsert_entry(l, entry))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_pronunciation(
+    state: St<'_>,
+    scope: Scope,
+    project_id: Option<String>,
+    entry_id: String,
+) -> AppResult<Vec<PronEntry>> {
+    let s = state.inner().clone();
+    run(move || {
+        edit_prons(&s, scope, project_id.as_deref(), |l| {
+            l.retain(|e| e.id != entry_id)
+        })
+    })
+    .await
+}
+
+// ---------- render queue ----------
+
+#[tauri::command]
+pub async fn enqueue(state: St<'_>, id: String) -> AppResult<QueueState> {
+    let s = state.inner().clone();
+    run(move || {
+        require_models(&s)?;
+        Ok(s.render.enqueue(&id)?)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn cancel_render(state: St<'_>, id: String) -> AppResult<QueueState> {
+    let s = state.inner().clone();
+    run(move || Ok(s.render.cancel(&id))).await
+}
+
+#[tauri::command]
+pub async fn pause_queue(state: St<'_>) -> AppResult<QueueState> {
+    let s = state.inner().clone();
+    run(move || Ok(s.render.pause())).await
+}
+
+#[tauri::command]
+pub async fn resume_queue(state: St<'_>) -> AppResult<QueueState> {
+    let s = state.inner().clone();
+    run(move || Ok(s.render.resume())).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Dir {
+    Up,
+    Down,
+}
+
+#[tauri::command]
+pub async fn move_in_queue(state: St<'_>, id: String, direction: Dir) -> AppResult<QueueState> {
+    let s = state.inner().clone();
+    run(move || {
+        let d = match direction {
+            Dir::Up => Direction::Up,
+            Dir::Down => Direction::Down,
+        };
+        Ok(s.render.move_item(&id, d))
+    })
+    .await
+}
+
+// ---------- player ----------
+
+fn chapter_segs(
+    plan: &Plan,
+    project: &Project,
+    chapter_id: &str,
+) -> Option<(String, Vec<Segment>)> {
+    let included = project.included_ids();
+    let seq = plan.sequence(&included);
+    if let Some(c) = seq.iter().find(|c| c.id == chapter_id) {
+        return Some((
+            c.title.to_string(),
+            c.segments.iter().map(|s| (*s).clone()).collect(),
+        ));
+    }
+    plan.chapters
+        .iter()
+        .find(|c| c.chapter_id == chapter_id)
+        .map(|c| (c.title.clone(), c.segments.clone()))
+}
+
+#[tauri::command]
+pub async fn player_play_chapter(
+    state: St<'_>,
+    project_id: String,
+    chapter_id: String,
+    start_ms: u64,
+) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        let settings = s.settings();
+        let project = s.store.load(&project_id)?;
+        let hash = plan::compute_inputs_hash(&project, &settings);
+        let plan = s
+            .store
+            .load_plan(&project_id)
+            .ok()
+            .flatten()
+            .filter(|p| p.inputs_hash == hash)
+            .ok_or_else(|| AppError::new("That chapter isn't ready yet."))?;
+        let (title, segments) = chapter_segs(&plan, &project, &chapter_id)
+            .ok_or_else(|| AppError::new("That chapter isn't ready yet."))?;
+        let audio = s.data.project_audio(&project_id);
+        let mut segs = Vec::with_capacity(segments.len());
+        for seg in &segments {
+            segs.push(match seg {
+                Segment::Silence { ms } => {
+                    Seg::Silence(*ms as u64 * aloud_core::SAMPLE_RATE as u64 / 1000)
+                }
+                Segment::Speech { key, .. } => file_seg(&audio, key)
+                    .ok_or_else(|| AppError::new("That chapter isn't ready yet."))?,
+            });
+        }
+        s.player.send(Cmd::Play {
+            project_id: Some(project_id),
+            chapter_id: Some(chapter_id),
+            title,
+            segs,
+            start_ms,
+        });
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn player_toggle(state: St<'_>) {
+    state.player.send(Cmd::Toggle);
+}
+
+#[tauri::command]
+pub fn player_stop(state: St<'_>) {
+    state.player.send(Cmd::Stop);
+}
+
+#[tauri::command]
+pub fn player_seek(state: St<'_>, ms: u64) {
+    state.player.send(Cmd::Seek(ms));
+}
+
+// ---------- storage ----------
+
+#[tauri::command]
+pub async fn project_cache_size(state: St<'_>, id: String) -> AppResult<u64> {
+    let s = state.inner().clone();
+    run(move || Ok(fsx::dir_size(&s.data.project_audio(&id)))).await
+}
+
+#[tauri::command]
+pub async fn clear_project_cache(state: St<'_>, id: String) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        ensure_idle(&s, &id)?;
+        s.player.send(Cmd::Stop);
+        match std::fs::remove_dir_all(s.data.project_audio(&id)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
+        // Done stays Done: the exported file is untouched.
+        if let Ok(mut p) = s.store.load(&id)
+            && matches!(p.status, ProjectStatus::Queued | ProjectStatus::Paused)
+        {
+            s.store.save(&mut p)?;
+        }
+        s.emit_project(&id);
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn storage_size(state: St<'_>) -> AppResult<u64> {
+    let s = state.inner().clone();
+    run(move || {
+        let projects = std::fs::read_dir(s.data.projects())
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| fsx::dir_size(&e.path().join("audio")))
+                    .sum::<u64>()
+            })
+            .unwrap_or(0);
+        Ok(projects + fsx::dir_size(&s.data.previews()))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn open_data_dir(state: St<'_>) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        std::fs::create_dir_all(s.data.root())?;
+        s.app
+            .opener()
+            .open_path(s.data.root().to_string_lossy(), None::<&str>)
+            .map_err(|e| AppError::new(e.to_string()))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn quit_app(state: St<'_>) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        s.render.pause();
+        s.app.exit(0);
+        Ok(())
+    })
+    .await
+}
