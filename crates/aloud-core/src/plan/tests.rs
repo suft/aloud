@@ -3,7 +3,9 @@ use crate::{
     book::{BookMeta, Chapter},
     pron::{PronEntry, SayAs},
 };
-use std::sync::Mutex;
+use std::sync::{Mutex, atomic::AtomicBool};
+
+static NEVER: AtomicBool = AtomicBool::new(false);
 
 /// Stand-in for espeak/misaki: lowercases the text and records words starting with 'z' as unknown.
 #[derive(Default)]
@@ -93,11 +95,11 @@ fn editing_one_word_changes_only_its_paragraph() {
     project.intro = false;
 
     let fake = Fake::default();
-    let before = build_plan(&b, &project, &settings, &fake, &|_, _| {}).unwrap();
+    let before = build_plan(&b, &project, &settings, &fake, &|_, _| {}, &NEVER).unwrap();
     project
         .pronunciations
         .push(PronEntry::new("two", SayAs::Text("too".into()), false));
-    let after = build_plan(&b, &project, &settings, &fake, &|_, _| {}).unwrap();
+    let after = build_plan(&b, &project, &settings, &fake, &|_, _| {}, &NEVER).unwrap();
 
     assert_ne!(before.inputs_hash, after.inputs_hash);
     let (k0, k1) = (speech_keys(&before), speech_keys(&after));
@@ -116,7 +118,15 @@ fn selection_does_not_change_the_plan_hash_and_intro_follows_first_included() {
     project.chapters[0].included = false;
     assert_eq!(h, compute_inputs_hash(&project, &settings));
 
-    let plan = build_plan(&b, &project, &settings, &Fake::default(), &|_, _| {}).unwrap();
+    let plan = build_plan(
+        &b,
+        &project,
+        &settings,
+        &Fake::default(),
+        &|_, _| {},
+        &NEVER,
+    )
+    .unwrap();
     assert!(!plan.intro.is_empty());
     let included: HashSet<String> = ["c1".to_string()].into();
     let seq = plan.sequence(&included);
@@ -136,7 +146,15 @@ fn tricky_words_find_unknown_words_and_acronyms() {
     let settings = Settings::default();
     let mut project = Project::new("id", "b.epub".into(), &b, &settings);
     project.intro = false;
-    let plan = build_plan(&b, &project, &settings, &Fake::default(), &|_, _| {}).unwrap();
+    let plan = build_plan(
+        &b,
+        &project,
+        &settings,
+        &Fake::default(),
+        &|_, _| {},
+        &NEVER,
+    )
+    .unwrap();
     let words = tricky_words(&b, &plan, &[]);
     let names: Vec<&str> = words.iter().map(|w| w.word.as_str()).collect();
     assert_eq!(words[0].word, "Zorbo");

@@ -90,7 +90,8 @@ fn exports_chapters_tags_and_duration() {
         ],
     };
 
-    let info = export(&data, &project, &plan, &settings, &|_| {}).unwrap();
+    let never = AtomicBool::new(false);
+    let info = export(&data, &project, &plan, &settings, &|_| {}, &never).unwrap();
     assert_eq!(
         info.output.file_name().unwrap(),
         "Tone_ A Book - Jane Doe.m4b"
@@ -111,8 +112,57 @@ fn exports_chapters_tags_and_duration() {
 
     // Missing audio is reported rather than producing a short file.
     fs::remove_file(cache::pcm_path(&audio, &"bb".repeat(16))).unwrap();
-    assert!(export(&data, &project, &plan, &settings, &|_| {}).is_err());
+    assert!(export(&data, &project, &plan, &settings, &|_| {}, &never).is_err());
     assert!(!info.output.with_extension("m4b.part").exists());
+}
+
+#[test]
+fn cancelled_export_leaves_no_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = DataDir::new(dir.path().join("data"));
+    let book = Book {
+        meta: BookMeta::default(),
+        chapters: vec![BookChapter {
+            id: "c1".into(),
+            title: "One".into(),
+            kind: ChapterKind::Body,
+            blocks: vec![Block::Para("x".into())],
+            words: 1,
+        }],
+    };
+    let settings = Settings {
+        output_dir: dir.path().join("out"),
+        ..Settings::default()
+    };
+    let project = Project::new("proj", "t.epub".into(), &book, &settings);
+    cache::write_pcm(&data.project_audio("proj"), &"aa".repeat(16), &tone(1.0)).unwrap();
+    let plan = Plan {
+        inputs_hash: "h".into(),
+        intro: vec![],
+        oov: vec![],
+        chapters: vec![PlannedChapter {
+            chapter_id: "c1".into(),
+            title: "One".into(),
+            segments: vec![speech("aa"), Segment::Silence { ms: 500 }],
+            units: 10,
+        }],
+    };
+
+    let r = export(
+        &data,
+        &project,
+        &plan,
+        &settings,
+        &|_| {},
+        &AtomicBool::new(true),
+    );
+    assert!(matches!(r, Err(Error::Cancelled)));
+    let left = fs::read_dir(&settings.output_dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().contains(".m4b"))
+        .count();
+    assert_eq!(left, 0);
 }
 
 #[test]
@@ -162,7 +212,15 @@ fn long_titles_and_more_than_255_chapters_export() {
             .collect(),
     };
 
-    let info = export(&data, &project, &plan, &settings, &|_| {}).unwrap();
+    let info = export(
+        &data,
+        &project,
+        &plan,
+        &settings,
+        &|_| {},
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     let tag = Tag::read_from_path(&info.output).unwrap();
     assert_eq!(tag.chapter_track().len(), 300);
     assert_eq!(tag.chapter_list().len(), 255);

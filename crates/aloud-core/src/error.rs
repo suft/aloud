@@ -16,6 +16,8 @@ pub enum Error {
     Invalid(String),
     #[error("That book couldn't be found. It may have been removed.")]
     NotFound(String),
+    #[error("Stopped.")]
+    Cancelled,
     #[error("{0}")]
     Other(String),
 }

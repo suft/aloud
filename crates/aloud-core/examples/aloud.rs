@@ -18,7 +18,7 @@ use aloud_core::{
 use clap::Parser;
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Mutex, atomic::AtomicBool, mpsc},
     time::Instant,
 };
 
@@ -252,7 +252,9 @@ fn main() {
     }
 
     // Report how much of the work is already cached (the resume state).
-    let plan = svc.ensure_plan(&summary.id, &|_, _| {}).unwrap();
+    let plan = svc
+        .ensure_plan(&summary.id, &|_, _| {}, &AtomicBool::new(false))
+        .unwrap();
     let included = project.included_ids();
     let audio = data.project_audio(&summary.id);
     let (mut done, mut total) = (0u64, 0u64);

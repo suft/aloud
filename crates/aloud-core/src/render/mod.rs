@@ -378,7 +378,12 @@ impl RenderService {
     }
 
     /// Builds (or loads) the plan for a project. Serialized, so only one build runs at a time.
-    pub fn ensure_plan(&self, id: &str, progress: &dyn Fn(usize, usize)) -> Result<Plan> {
+    pub fn ensure_plan(
+        &self,
+        id: &str,
+        progress: &dyn Fn(usize, usize),
+        cancel: &AtomicBool,
+    ) -> Result<Plan> {
         let _guard = lock(&self.plan_lock);
         let project = self.store.load(id)?;
         let settings = Settings::load(&self.data)?;
@@ -396,6 +401,7 @@ impl RenderService {
             &settings,
             self.phonemizer.as_ref(),
             progress,
+            cancel,
         )?;
         self.store.save_plan(id, &plan)?;
         Ok(plan)

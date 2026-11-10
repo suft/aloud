@@ -128,11 +128,14 @@ impl Layout {
 impl RenderService {
     pub(super) fn run_job(&self, id: &str, cancel: &AtomicBool) -> JobEnd {
         let r = self.try_job(id, cancel);
-        if let Err(e) = &r {
+        if let Err(e) = &r
+            && !matches!(e, Error::Cancelled)
+        {
             tracing::warn!("render job {id} failed: {e:?}");
         }
         match r {
             Ok(end) => end,
+            Err(Error::Cancelled) => JobEnd::Interrupted,
             Err(e) if e.is_storage_full() => JobEnd::DiskFull,
             Err(Error::Invalid(m)) => JobEnd::Failed(m),
             Err(e) => JobEnd::Failed(format!(
@@ -188,10 +191,7 @@ impl RenderService {
             realtime_factor: None,
         };
         self.set_progress(planning(0, 1));
-        let plan = self.ensure_plan(id, &|d, t| self.set_progress(planning(d, t)))?;
-        if cancel.load(Ordering::SeqCst) {
-            return Ok(JobEnd::Interrupted);
-        }
+        let plan = self.ensure_plan(id, &|d, t| self.set_progress(planning(d, t)), cancel)?;
 
         // --- work list ---
         let chapters = plan.sequence(&included);
@@ -268,6 +268,9 @@ impl RenderService {
         drop(chapters);
 
         // --- export ---
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(JobEnd::Interrupted);
+        }
         self.set_status(id, ProjectStatus::Exporting);
         let project = self.store.load(id)?;
         let finished = Stats {
@@ -284,13 +287,20 @@ impl RenderService {
         };
         export_progress(0.0);
         let last = Mutex::new(Instant::now());
-        let info = export::export(&self.data, &project, &plan, &settings, &|f| {
-            let mut t = lock(&last);
-            if t.elapsed() >= PROGRESS_EVERY {
-                *t = Instant::now();
-                export_progress(f);
-            }
-        })?;
+        let info = export::export(
+            &self.data,
+            &project,
+            &plan,
+            &settings,
+            &|f| {
+                let mut t = lock(&last);
+                if t.elapsed() >= PROGRESS_EVERY {
+                    *t = Instant::now();
+                    export_progress(f);
+                }
+            },
+            cancel,
+        )?;
 
         self.store.update(id, |p| {
             p.status = ProjectStatus::Done {

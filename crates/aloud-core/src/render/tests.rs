@@ -105,11 +105,17 @@ fn panic_in_a_job_fails_it_and_the_queue_continues() {
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Lowercases the text; the plan keeps only vocabulary characters, so letters and spaces survive.
-struct FakePhonemizer;
+/// Lowercases the text after `delay`; the plan keeps only vocabulary characters, so letters and
+/// spaces survive.
+struct FakePhonemizer {
+    delay: Duration,
+    calls: Arc<AtomicUsize>,
+}
 
 impl Phonemize for FakePhonemizer {
     fn phonemize(&self, _: Dialect, text: &str) -> Result<String> {
+        thread::sleep(self.delay);
+        self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(text.to_lowercase())
     }
     fn take_oov(&self) -> HashMap<String, u32> {
@@ -195,23 +201,42 @@ fn service(
     Arc<AtomicUsize>,
     mpsc::Receiver<Finished>,
 ) {
+    let (svc, calls, _, rx) = service_with(data, delay, Duration::ZERO);
+    (svc, calls, rx)
+}
+
+/// Like `service`, with a delay per phonemize call; also returns the phonemize call counter.
+fn service_with(
+    data: &DataDir,
+    synth_delay: Duration,
+    plan_delay: Duration,
+) -> (
+    Arc<RenderService>,
+    Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
+    mpsc::Receiver<Finished>,
+) {
     let calls = Arc::new(AtomicUsize::new(0));
     let counter = calls.clone();
     let open: OpenEngine = Box::new(move |_, _, _| {
         let synth = FakeSynth {
             calls: counter.clone(),
-            delay,
+            delay: synth_delay,
         };
         Ok((Box::new(synth) as Box<dyn Synth>, false))
     });
+    let phonemize_calls = Arc::new(AtomicUsize::new(0));
     let (tx, rx) = mpsc::channel();
     let svc = RenderService::with_backend(
         data.clone(),
         Arc::new(Recorder(Mutex::new(tx))),
-        Box::new(FakePhonemizer),
+        Box::new(FakePhonemizer {
+            delay: plan_delay,
+            calls: phonemize_calls.clone(),
+        }),
         open,
     );
-    (svc, calls, rx)
+    (svc, calls, phonemize_calls, rx)
 }
 
 fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
@@ -362,6 +387,25 @@ fn cancel_stops_the_job_and_keeps_its_audio() {
         pcm_count(&data.project_audio("book")),
         calls.load(Ordering::SeqCst)
     );
+}
+
+#[test]
+fn cancel_during_planning_returns_promptly() {
+    let (_dir, data) = fixture(&["book"], 100);
+    let (svc, synth_calls, phonemize_calls, rx) =
+        service_with(&data, Duration::ZERO, Duration::from_millis(20));
+    svc.enqueue("book").unwrap();
+    wait_until("three phonemize calls", || {
+        phonemize_calls.load(Ordering::SeqCst) >= 3
+    });
+
+    let t = Instant::now();
+    svc.cancel("book");
+    assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+    assert!(matches!(status_of(&svc, "book"), ProjectStatus::Paused));
+    assert!(rx.recv_timeout(Duration::from_millis(500)).is_err());
+    assert!(svc.store().load_plan("book").unwrap().is_none());
+    assert_eq!(synth_calls.load(Ordering::SeqCst), 0);
 }
 
 #[test]

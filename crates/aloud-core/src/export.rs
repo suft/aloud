@@ -11,6 +11,7 @@ use std::{
     fs::{self, File},
     io::BufWriter,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
@@ -101,12 +102,19 @@ fn missing_audio(_: std::io::Error) -> Error {
 }
 
 /// Gain in linear units that brings the audio to the target loudness without clipping.
-fn measure_gain(audio_dir: &Path, chapters: &[crate::plan::SeqChapter]) -> Result<f32> {
+fn measure_gain(
+    audio_dir: &Path,
+    chapters: &[crate::plan::SeqChapter],
+    cancel: &AtomicBool,
+) -> Result<f32> {
     let mut meter =
         EbuR128::new(1, SAMPLE_RATE, Mode::I | Mode::TRUE_PEAK).map_err(Error::other)?;
     let zeros = vec![0.0f32; SILENCE_CHUNK];
     for ch in chapters {
         for seg in &ch.segments {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(Error::Cancelled);
+            }
             match seg {
                 Segment::Speech { key, .. } => {
                     let pcm = cache::read_pcm(audio_dir, key).map_err(missing_audio)?;
@@ -208,6 +216,7 @@ pub fn export(
     plan: &Plan,
     settings: &Settings,
     progress: &dyn Fn(f32),
+    cancel: &AtomicBool,
 ) -> Result<FinishedInfo> {
     let audio_dir = data.project_audio(&project.id);
     let included = project.included_ids();
@@ -229,7 +238,7 @@ pub fn export(
     let part = out_path.with_extension("m4b.part");
 
     let result = write_m4b(
-        data, project, &chapters, &audio_dir, settings, &part, progress,
+        data, project, &chapters, &audio_dir, &part, progress, cancel,
     );
     match result {
         Ok(info) => {
@@ -251,9 +260,9 @@ fn write_m4b(
     project: &Project,
     chapters: &[crate::plan::SeqChapter],
     audio_dir: &Path,
-    _settings: &Settings,
     part: &Path,
     progress: &dyn Fn(f32),
+    cancel: &AtomicBool,
 ) -> Result<FinishedInfo> {
     let mut total_samples = 0u64;
     for ch in chapters {
@@ -262,7 +271,7 @@ fn write_m4b(
         }
     }
 
-    let gain = measure_gain(audio_dir, chapters)?;
+    let gain = measure_gain(audio_dir, chapters, cancel)?;
 
     let file = BufWriter::new(File::create(part)?);
     let cfg = Mp4Config {
@@ -300,6 +309,9 @@ fn write_m4b(
     for ch in chapters {
         starts.push((mux.samples_written, ch.title.to_string()));
         for seg in &ch.segments {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(Error::Cancelled);
+            }
             match seg {
                 Segment::Speech { key, .. } => {
                     let pcm = cache::read_pcm(audio_dir, key).map_err(missing_audio)?;

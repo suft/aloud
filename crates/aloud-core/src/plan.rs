@@ -8,12 +8,15 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    sync::LazyLock,
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use crate::{
     book::{Block, Book, ChapterKind},
-    error::Result,
+    error::{Error, Result},
     g2p::{Dialect, Phonemize},
     project::Project,
     pron::{self, Dictionary, SayAs},
@@ -222,6 +225,7 @@ pub fn build_plan(
     settings: &Settings,
     ph: &dyn Phonemize,
     progress: &dyn Fn(usize, usize),
+    cancel: &AtomicBool,
 ) -> Result<Plan> {
     let dict = Dictionary::new(&settings.pronunciations, &project.pronunciations);
     let dialect = Dialect::for_voice(&project.voice);
@@ -262,6 +266,9 @@ pub fn build_plan(
     for (ci, ch) in book.chapters.iter().enumerate() {
         let mut segments = Vec::new();
         for block in &ch.blocks {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(Error::Cancelled);
+            }
             match block {
                 Block::Heading(h) => {
                     segments.push(Segment::Silence { ms: 1200 });

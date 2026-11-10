@@ -18,7 +18,10 @@ use aloud_core::{
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     path::PathBuf,
-    sync::{Arc, PoisonError, atomic::Ordering},
+    sync::{
+        Arc, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Manager, State};
@@ -272,7 +275,10 @@ fn detail(s: &AppState, id: &str) -> AppResult<ProjectDetail> {
     let mut plan = s.store.load_plan(id).ok().flatten();
     if project.is_stale(&settings) && plan.as_ref().is_some_and(|p| p.inputs_hash != current) {
         // The plan is what tells how much would have to be redone.
-        plan = s.render.ensure_plan(id, &|_, _| {}).ok();
+        plan = s
+            .render
+            .ensure_plan(id, &|_, _| {}, &AtomicBool::new(false))
+            .ok();
     }
     let plan = plan.filter(|p| p.inputs_hash == current);
     let audio = s.data.project_audio(id);
@@ -385,7 +391,9 @@ fn ensure_idle(s: &AppState, id: &str) -> AppResult<()> {
 /// After a change that affects the audio, rebuild an existing plan so "% to redo" is exact.
 fn refresh_plan(s: &AppState, id: &str) {
     if s.store.plan_path(id).exists() {
-        let _ = s.render.ensure_plan(id, &|_, _| {});
+        let _ = s
+            .render
+            .ensure_plan(id, &|_, _| {}, &AtomicBool::new(false));
     }
 }
 
@@ -549,21 +557,25 @@ pub async fn get_tricky_words(state: St<'_>, id: String) -> AppResult<Vec<Tricky
     run(move || {
         let app = s.app.clone();
         let pid = id.clone();
-        let plan = s.render.ensure_plan(&id, &move |done, total| {
-            let _ = app.emit(
-                "render-progress",
-                RenderProgress {
-                    project_id: pid.clone(),
-                    phase: Phase::Planning,
-                    done_units: done as u64,
-                    total_units: total as u64,
-                    fraction: done as f32 / total.max(1) as f32,
-                    chapters: Vec::new(),
-                    eta_secs: None,
-                    realtime_factor: None,
-                },
-            );
-        })?;
+        let plan = s.render.ensure_plan(
+            &id,
+            &move |done, total| {
+                let _ = app.emit(
+                    "render-progress",
+                    RenderProgress {
+                        project_id: pid.clone(),
+                        phase: Phase::Planning,
+                        done_units: done as u64,
+                        total_units: total as u64,
+                        fraction: done as f32 / total.max(1) as f32,
+                        chapters: Vec::new(),
+                        eta_secs: None,
+                        realtime_factor: None,
+                    },
+                );
+            },
+            &AtomicBool::new(false),
+        )?;
         let p = s.store.load(&id)?;
         let book = s.store.book(&id)?;
         Ok(plan::tricky_words(&book, &plan, &p.dismissed_words))
