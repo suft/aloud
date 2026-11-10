@@ -477,3 +477,42 @@ fn startup_reconciles_statuses_left_by_a_crash() {
         "a paused queue must not render"
     );
 }
+
+#[test]
+fn replan_runs_in_the_background() {
+    let (_dir, data) = fixture(&["book"], 40);
+    let (svc, _, phonemize_calls, _rx) =
+        service_with(&data, Duration::ZERO, Duration::from_millis(20));
+    svc.ensure_plan("book", &|_, _| {}, &AtomicBool::new(false))
+        .unwrap();
+    let n = phonemize_calls.load(Ordering::SeqCst);
+    assert!(n > 0);
+
+    svc.store()
+        .update("book", |p| {
+            p.speed = 1.25;
+            Ok::<_, Error>(true)
+        })
+        .unwrap();
+    let started = Instant::now();
+    for _ in 0..3 {
+        svc.request_replan("book");
+    }
+    assert!(
+        started.elapsed() < Duration::from_millis(100),
+        "request_replan must not wait for the plan"
+    );
+
+    let settings = Settings::load(&data).unwrap();
+    wait_until("the plan to match the new speed", || {
+        let project = svc.store().load("book").unwrap();
+        svc.store()
+            .load_plan("book")
+            .ok()
+            .flatten()
+            .is_some_and(|p| p.inputs_hash == plan::compute_inputs_hash(&project, &settings))
+    });
+    wait_until("the worker to go idle", || !lock(&svc.replan).running);
+    // Repeated requests coalesce: the later ones find the plan already current.
+    assert_eq!(phonemize_calls.load(Ordering::SeqCst), 2 * n);
+}

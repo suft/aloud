@@ -38,7 +38,9 @@
       case "paused":
         return "Continue";
       case "done":
-        return `Update audiobook · ${Math.ceil(detail.redoFraction * 100)}% to redo`;
+        return detail.redoFraction === null
+          ? "Update audiobook"
+          : `Update audiobook · ${Math.ceil(detail.redoFraction * 100)}% to redo`;
       default:
         return null;
     }

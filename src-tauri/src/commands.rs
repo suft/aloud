@@ -262,7 +262,8 @@ pub struct ProjectDetail {
     estimated_secs: u64,
     chapters: Vec<ChapterDetail>,
     stale: bool,
-    redo_fraction: f32,
+    /// `None` until a plan matching the current settings exists.
+    redo_fraction: Option<f32>,
     output_file_name: String,
 }
 
@@ -275,15 +276,12 @@ fn detail(s: &AppState, id: &str) -> AppResult<ProjectDetail> {
     let project = s.store.load(id)?;
     let book = s.store.book(id)?;
     let current = plan::compute_inputs_hash(&project, &settings);
-    let mut plan = s.store.load_plan(id).ok().flatten();
-    if project.is_stale(&settings) && plan.as_ref().is_some_and(|p| p.inputs_hash != current) {
-        // The plan is what tells how much would have to be redone.
-        plan = s
-            .render
-            .ensure_plan(id, &|_, _| {}, &AtomicBool::new(false))
-            .ok();
-    }
-    let plan = plan.filter(|p| p.inputs_hash == current);
+    let plan = s
+        .store
+        .load_plan(id)
+        .ok()
+        .flatten()
+        .filter(|p| p.inputs_hash == current);
     let audio = s.data.project_audio(id);
     let included = project.included_ids();
 
@@ -336,7 +334,7 @@ fn detail(s: &AppState, id: &str) -> AppResult<ProjectDetail> {
 
     let redo_fraction = plan
         .as_ref()
-        .map_or(1.0, |p| 1.0 - cache::cached_fraction(p, &included, &audio));
+        .map(|p| 1.0 - cache::cached_fraction(p, &included, &audio));
     Ok(ProjectDetail {
         cover_path: project.cover_path(&s.data),
         word_count,
@@ -404,12 +402,11 @@ fn check_id(id: &str) -> AppResult<()> {
     }
 }
 
-/// After a change that affects the audio, rebuild an existing plan so "% to redo" is exact.
+/// Rebuilds an existing plan in the background so "% to redo" is exact once the
+/// project-updated event arrives.
 fn refresh_plan(s: &AppState, id: &str) {
     if s.store.plan_path(id).exists() {
-        let _ = s
-            .render
-            .ensure_plan(id, &|_, _| {}, &AtomicBool::new(false));
+        s.render.request_replan(id);
     }
 }
 

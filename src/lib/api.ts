@@ -141,8 +141,8 @@ export interface ProjectDetail {
   estimatedSecs: number;
   chapters: ChapterDetail[];
   stale: boolean;
-  /** 0..1 */
-  redoFraction: number;
+  /** 0..1, or null while the plan is being rebuilt after an edit. */
+  redoFraction: number | null;
   /** Preview of the exported file name. */
   outputFileName: string;
 }

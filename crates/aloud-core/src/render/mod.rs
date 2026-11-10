@@ -6,6 +6,7 @@ mod preview;
 
 use serde::Serialize;
 use std::{
+    collections::VecDeque,
     panic::{self, AssertUnwindSafe},
     sync::{
         Arc, Condvar, Mutex, MutexGuard, PoisonError,
@@ -93,6 +94,13 @@ struct State {
     progress: Option<RenderProgress>,
 }
 
+/// Projects waiting for a background plan rebuild, and whether a worker is draining them.
+#[derive(Default)]
+struct Replan {
+    pending: VecDeque<String>,
+    running: bool,
+}
+
 /// Opens one synthesis engine for a worker; the bool reports a GPU → CPU fallback.
 pub(crate) type OpenEngine = Box<
     dyn Fn(&RenderService, ModelVariant, EngineOptions) -> Result<(Box<dyn Synth>, bool)>
@@ -111,6 +119,7 @@ pub struct RenderService {
     open_engine: OpenEngine,
     voices: Mutex<Option<Arc<Voices>>>,
     preview: Mutex<preview::PreviewState>,
+    replan: Mutex<Replan>,
 }
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -199,6 +208,7 @@ impl RenderService {
             open_engine,
             voices: Mutex::new(None),
             preview: Mutex::new(preview::PreviewState::default()),
+            replan: Mutex::new(Replan::default()),
         });
         let worker = svc.clone();
         thread::Builder::new()
@@ -405,6 +415,51 @@ impl RenderService {
         )?;
         self.store.save_plan(id, &plan)?;
         Ok(plan)
+    }
+
+    /// Rebuilds the plan of `id` on a background thread if its inputs changed, then announces
+    /// the project as changed. Requests for the same project coalesce; the caller never waits.
+    pub fn request_replan(self: &Arc<Self>, id: &str) {
+        let mut r = lock(&self.replan);
+        if !r.pending.iter().any(|p| p == id) {
+            r.pending.push_back(id.to_string());
+        }
+        if r.running {
+            return;
+        }
+        r.running = true;
+        let svc = self.clone();
+        if let Err(e) = thread::Builder::new()
+            .name("aloud-replan".into())
+            .spawn(move || svc.replan_loop())
+        {
+            tracing::warn!("couldn't start the re-plan thread: {e}");
+            r.running = false;
+        }
+    }
+
+    fn replan_loop(&self) {
+        loop {
+            let id = {
+                let mut r = lock(&self.replan);
+                match r.pending.pop_front() {
+                    Some(id) => id,
+                    None => {
+                        r.running = false;
+                        return;
+                    }
+                }
+            };
+            let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                self.ensure_plan(&id, &|_, _| {}, &AtomicBool::new(false))
+            }));
+            match result {
+                Ok(Ok(_)) | Ok(Err(Error::NotFound(_))) => {}
+                Ok(Err(e)) => tracing::warn!("re-planning {id} failed: {e}"),
+                Err(p) => tracing::warn!("re-planning {id} failed: {}", panic_text(&*p)),
+            }
+            self.events.project_changed(&id);
+        }
     }
 
     fn models_ready(&self) -> bool {
