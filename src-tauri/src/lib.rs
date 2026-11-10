@@ -12,25 +12,34 @@ use tauri::{Emitter, Manager, WindowEvent};
 
 use state::{AppState, TauriEvents};
 
-/// Points espeak-ng at its bundled data before any phonemization happens.
-fn configure_espeak(app: &tauri::App) {
-    let bundled = app
-        .path()
-        .resource_dir()
-        .ok()
-        .filter(|d| d.join("espeak-ng-data").join("en_dict").exists());
-    let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
-    let dir = bundled.or_else(|| {
-        dev.join("espeak-ng-data")
-            .join("en_dict")
-            .exists()
-            .then_some(dev)
-    });
-    if let Some(dir) = dir {
-        // SAFETY: runs in `setup`, before any phonemizer call and before the render scheduler
-        // and player threads exist, so no other thread is reading the environment.
-        unsafe { std::env::set_var("PIPER_ESPEAKNG_DATA_DIRECTORY", dir) };
+const ESPEAK_DATA_VAR: &str = "PIPER_ESPEAKNG_DATA_DIRECTORY";
+
+fn has_espeak_data(dir: &std::path::Path) -> bool {
+    dir.join("espeak-ng-data").join("en_dict").exists()
+}
+
+/// Points espeak-ng at its bundled data; returns whether data was found. Must run first thing in
+/// `run()`, before the Tauri builder and any thread exist.
+fn configure_espeak(context: &tauri::Context) -> bool {
+    // `mise.toml` sets the variable for development.
+    if std::env::var_os(ESPEAK_DATA_VAR).is_some_and(|v| !v.is_empty()) {
+        return true;
     }
+    let bundled =
+        tauri::utils::platform::resource_dir(context.package_info(), &tauri::Env::default())
+            .ok()
+            .filter(|d| has_espeak_data(d));
+    // The build directory is only a fallback for development builds.
+    #[cfg(debug_assertions)]
+    let bundled = bundled.or_else(|| {
+        let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+        has_espeak_data(&dev).then_some(dev)
+    });
+    let Some(dir) = bundled else { return false };
+    // SAFETY: called first thing in `run()`, from main, before the Tauri builder, its plugins or
+    // any thread of ours exist, so nothing else reads the environment.
+    unsafe { std::env::set_var(ESPEAK_DATA_VAR, dir) };
+    true
 }
 
 fn render_busy(app: &tauri::AppHandle) -> bool {
@@ -39,6 +48,8 @@ fn render_busy(app: &tauri::AppHandle) -> bool {
 }
 
 pub fn run() {
+    let context = tauri::generate_context!();
+    let espeak_found = configure_espeak(&context);
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -53,8 +64,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .setup(|app| {
-            configure_espeak(app);
+        .setup(move |app| {
+            if !espeak_found {
+                log::warn!(
+                    "espeak-ng data wasn't found next to Aloud; making audiobooks will fail"
+                );
+            }
             let data = match DataDir::from_env() {
                 Some(d) => d,
                 None => DataDir::new(app.path().app_data_dir()?),
@@ -143,7 +158,7 @@ pub fn run() {
             commands::open_output,
             commands::quit_app,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Aloud")
         .run(|app, event| {
             // `code: None` is the user asking to quit (Cmd+Q, Dock → Quit); `quit_app` exits with
