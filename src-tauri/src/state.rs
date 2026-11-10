@@ -32,14 +32,14 @@ impl AppState {
         Settings::load(&self.data).unwrap_or_default()
     }
 
-    /// Applies `f` to the persisted settings and saves them.
-    pub fn update_settings<R>(
+    /// Applies `f` to the persisted settings and saves them, unless `f` fails.
+    pub fn update_settings<R, E: From<aloud_core::Error>>(
         &self,
-        f: impl FnOnce(&mut Settings) -> R,
-    ) -> aloud_core::Result<(Settings, R)> {
+        f: impl FnOnce(&mut Settings) -> Result<R, E>,
+    ) -> Result<(Settings, R), E> {
         let _guard = self.settings_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut s = Settings::load(&self.data)?;
-        let r = f(&mut s);
+        let r = f(&mut s)?;
         s.save(&self.data)?;
         Ok((s, r))
     }

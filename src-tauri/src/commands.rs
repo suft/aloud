@@ -7,7 +7,7 @@ use aloud_core::{
     models::ModelsStatus,
     plan::{self, Plan, Segment, TrickyWord},
     project::{Project, ProjectStatus, ProjectSummary},
-    pron::PronEntry,
+    pron::{Dictionary, PronEntry},
     queue::QueueState,
     render::{Direction, Phase, RenderProgress, cache},
     settings::{ModelVariant, Performance, Settings, Theme},
@@ -144,6 +144,7 @@ pub async fn update_settings(state: St<'_>, patch: SettingsPatch) -> AppResult<S
             if let Some(v) = patch.theme {
                 c.theme = v;
             }
+            Ok::<_, AppError>(())
         })?;
         Ok(settings)
     })
@@ -648,7 +649,15 @@ fn edit_prons(
 ) -> AppResult<Vec<PronEntry>> {
     match scope {
         Scope::Global => {
-            let (settings, ()) = s.update_settings(|c| f(&mut c.pronunciations))?;
+            let book = match project_id {
+                Some(id) => s.store.load(id)?.pronunciations,
+                None => Vec::new(),
+            };
+            let (settings, ()) = s.update_settings(|c| {
+                f(&mut c.pronunciations);
+                Dictionary::new(&c.pronunciations, &book)?;
+                Ok::<_, AppError>(())
+            })?;
             if let Some(id) = project_id {
                 refresh_plan(s, id);
                 s.emit_project(id);
@@ -658,8 +667,10 @@ fn edit_prons(
         Scope::Book => {
             let id = project_id.ok_or_else(|| AppError::new("Choose a book first."))?;
             ensure_idle(s, id)?;
+            let settings = s.settings();
             let p = s.store.update(id, |p| {
                 f(&mut p.pronunciations);
+                Dictionary::new(&settings.pronunciations, &p.pronunciations)?;
                 Ok::<_, AppError>(true)
             })?;
             refresh_plan(s, id);

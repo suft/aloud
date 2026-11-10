@@ -1,6 +1,6 @@
 //! Pronunciation dictionary: user fixes applied to text before phonemization.
 
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::HashMap, sync::LazyLock};
 
@@ -30,6 +30,10 @@ static WORD_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 const BAD_WORD: &str = "Use letters or numbers (spaces, hyphens and apostrophes are fine inside).";
+
+const SIZE_LIMIT: usize = 64 << 20;
+pub(crate) const TOO_LARGE: &str =
+    "There are too many pronunciation fixes to apply at once. Remove some, then try again.";
 
 impl PronEntry {
     pub fn new(word: &str, say_as: SayAs, match_case: bool) -> Self {
@@ -84,13 +88,17 @@ pub struct Dictionary {
 }
 
 impl Dictionary {
-    pub fn new(global: &[PronEntry], book: &[PronEntry]) -> Self {
+    pub fn new(global: &[PronEntry], book: &[PronEntry]) -> Result<Self> {
+        Self::with_size_limit(global, book, SIZE_LIMIT)
+    }
+
+    fn with_size_limit(global: &[PronEntry], book: &[PronEntry], limit: usize) -> Result<Self> {
         let entries = effective_entries(global, book);
         if entries.is_empty() {
-            return Dictionary {
+            return Ok(Dictionary {
                 re: None,
                 by_word: HashMap::new(),
-            };
+            });
         }
         let mut words: Vec<&str> = entries.iter().map(|e| e.word.as_str()).collect();
         words.sort_by_key(|w| std::cmp::Reverse(w.chars().count()));
@@ -99,12 +107,22 @@ impl Dictionary {
             .map(|w| regex::escape(w))
             .collect::<Vec<_>>()
             .join("|");
-        let re = Regex::new(&format!(r"(?i)\b(?:{alt})\b")).ok();
+        let re = RegexBuilder::new(&format!(r"(?i)\b(?:{alt})\b"))
+            .size_limit(limit)
+            .dfa_size_limit(limit)
+            .build()
+            .map_err(|e| {
+                tracing::warn!("pronunciation regex: {e}");
+                Error::Invalid(TOO_LARGE.into())
+            })?;
         let by_word = entries
             .into_iter()
             .map(|e| (e.word.to_lowercase(), e.clone()))
             .collect();
-        Dictionary { re, by_word }
+        Ok(Dictionary {
+            re: Some(re),
+            by_word,
+        })
     }
 
     pub fn apply<'t>(&self, text: &'t str) -> Cow<'t, str> {
@@ -135,7 +153,8 @@ mod tests {
 
     #[test]
     fn match_case_and_whole_words() {
-        let d = Dictionary::new(&[], &[text("IT", "I T", true), text("Al", "Albert", false)]);
+        let d =
+            Dictionary::new(&[], &[text("IT", "I T", true), text("Al", "Albert", false)]).unwrap();
         assert_eq!(
             d.apply("it is IT and Alice met al."),
             "it is I T and Alice met Albert."
@@ -149,21 +168,41 @@ mod tests {
             text("York", "Yorkshire", false),
         ];
         let book = [text("york", "Yark", false)];
-        let d = Dictionary::new(&global, &book);
+        let d = Dictionary::new(&global, &book).unwrap();
         assert_eq!(d.apply("New York and York"), "Noo Yawk and Yark");
     }
 
     #[test]
     fn phoneme_entries_emit_misaki_markup() {
         let e = PronEntry::new("Chariandy", SayAs::Phonemes("ʧˈɑɹiɑndi".into()), false);
-        let d = Dictionary::new(&[], &[e]);
+        let d = Dictionary::new(&[], &[e]).unwrap();
         assert_eq!(d.apply("Mr Chariandy."), "Mr [Chariandy](/ʧˈɑɹiɑndi/).");
     }
 
     #[test]
     fn empty_dictionary_borrows() {
-        let d = Dictionary::new(&[], &[]);
+        let d = Dictionary::new(&[], &[]).unwrap();
         assert!(matches!(d.apply("hello"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn too_large_dictionary_is_reported() {
+        let entries: Vec<PronEntry> = (0..50)
+            .map(|i| text(&format!("word{i:02}"), "x", false))
+            .collect();
+        match Dictionary::with_size_limit(&[], &entries, 1 << 10) {
+            Err(Error::Invalid(m)) => assert_eq!(m, TOO_LARGE),
+            other => panic!("expected Invalid, got {:?}", other.map(|_| ())),
+        }
+    }
+
+    #[test]
+    fn thousands_of_entries_all_apply() {
+        let entries: Vec<PronEntry> = (0..2000)
+            .map(|i| text(&format!("zq{i:04}"), &format!("w{i}"), false))
+            .collect();
+        let d = Dictionary::new(&[], &entries).unwrap();
+        assert_eq!(d.apply("zq0000 zq1999"), "w0 w1999");
     }
 
     #[test]

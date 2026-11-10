@@ -227,7 +227,7 @@ pub fn build_plan(
     progress: &dyn Fn(usize, usize),
     cancel: &AtomicBool,
 ) -> Result<Plan> {
-    let dict = Dictionary::new(&settings.pronunciations, &project.pronunciations);
+    let dict = Dictionary::new(&settings.pronunciations, &project.pronunciations)?;
     let dialect = Dialect::for_voice(&project.voice);
     let (model, voice, speed) = (
         settings.model,

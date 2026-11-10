@@ -45,7 +45,7 @@ impl RenderService {
             Some(id) => self.store.load(id)?.pronunciations,
             None => Vec::new(),
         };
-        let dict = Dictionary::new(&settings.pronunciations, &book_prons);
+        let dict = Dictionary::new(&settings.pronunciations, &book_prons)?;
         let applied = dict.apply(&text);
         let phonemes = plan::only_vocab(
             &self
