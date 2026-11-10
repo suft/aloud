@@ -47,6 +47,7 @@ pub enum Cmd {
     },
     Toggle,
     Seek(u64),
+    StopProject(String),
     Stop,
 }
 
@@ -78,6 +79,11 @@ impl Player {
 
     pub fn send(&self, cmd: Cmd) {
         let _ = self.tx.send(cmd);
+    }
+
+    /// Stops playback only if the loaded chapter belongs to project `id`.
+    pub fn stop_project(&self, id: &str) {
+        self.send(Cmd::StopProject(id.to_string()));
     }
 }
 
@@ -388,6 +394,16 @@ fn run(app: AppHandle, rx: mpsc::Receiver<Cmd>) {
                 loaded = None;
                 device = None;
                 emit(&loaded);
+            }
+            Ok(Cmd::StopProject(id)) => {
+                if loaded
+                    .as_ref()
+                    .is_some_and(|l| l.project_id.as_deref() == Some(id.as_str()))
+                {
+                    loaded = None;
+                    device = None;
+                    emit(&loaded);
+                }
             }
             Err(RecvTimeoutError::Timeout) => {
                 let lost = device

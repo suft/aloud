@@ -502,7 +502,7 @@ pub async fn delete_project(state: St<'_>, id: String) -> AppResult<()> {
     run(move || {
         check_id(&id)?;
         s.render.cancel(&id);
-        s.player.send(Cmd::Stop);
+        s.player.stop_project(&id);
         s.store.delete(&id)?;
         s.emit_project(&id);
         Ok(())
@@ -988,7 +988,7 @@ pub async fn clear_project_cache(state: St<'_>, id: String) -> AppResult<()> {
     run(move || {
         check_id(&id)?;
         ensure_idle(&s, &id)?;
-        s.player.send(Cmd::Stop);
+        s.player.stop_project(&id);
         match std::fs::remove_dir_all(s.data.project_audio(&id)) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
             _ => {}
