@@ -516,3 +516,26 @@ fn replan_runs_in_the_background() {
     // Repeated requests coalesce: the later ones find the plan already current.
     assert_eq!(phonemize_calls.load(Ordering::SeqCst), 2 * n);
 }
+
+#[test]
+fn library_progress_is_fresh_after_a_pause() {
+    // `list` only shows real project ids.
+    let id = "0000000000000001";
+    let (_dir, data) = fixture(&[id], 40);
+    let (svc, calls, _rx) = service(&data, Duration::from_millis(50));
+    let settings = Settings::load(&data).unwrap();
+    let progress = || svc.store().list(&settings)[0].progress;
+    svc.enqueue(id).unwrap();
+
+    wait_until("three utterances", || calls.load(Ordering::SeqCst) >= 3);
+    let early = progress();
+    wait_until("six utterances", || calls.load(Ordering::SeqCst) >= 6);
+    svc.pause();
+
+    let project = svc.store().load(id).unwrap();
+    let plan = svc.store().load_plan(id).unwrap().expect("plan was built");
+    let expected = cache::cached_fraction(&plan, &project.included_ids(), &data.project_audio(id));
+    let after = progress();
+    assert_eq!(after, expected);
+    assert!(after > early, "{after} should exceed {early}");
+}

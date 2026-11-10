@@ -3,7 +3,10 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
-    sync::{Arc, LazyLock, Mutex, PoisonError},
+    sync::{
+        Arc, LazyLock, Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -31,6 +34,12 @@ pub struct ChapterSel {
     pub id: String,
     pub title: String,
     pub included: bool,
+    /// Copied from the book at import so the book page needn't read `book.json`; `None` for
+    /// projects imported before that.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ChapterKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -86,6 +95,8 @@ impl Project {
                     id: c.id.clone(),
                     title: c.title.clone(),
                     included: c.kind == ChapterKind::Body,
+                    words: Some(c.words),
+                    kind: Some(c.kind),
                 })
                 .collect(),
             voice: settings.default_voice.clone(),
@@ -178,6 +189,11 @@ pub fn is_project_id(id: &str) -> bool {
 static PROJECT_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> =
     LazyLock::new(Default::default);
 
+/// Library progress per project directory; see [`ProjectStore::cached_progress`].
+static PROGRESS: LazyLock<Mutex<HashMap<PathBuf, f32>>> = LazyLock::new(Default::default);
+/// Bumped by every `forget_progress`, so a value computed across a forget is not stored.
+static PROGRESS_EPOCH: AtomicU64 = AtomicU64::new(0);
+
 #[derive(Debug, Clone)]
 pub struct ProjectStore {
     data: DataDir,
@@ -216,6 +232,7 @@ impl ProjectStore {
     fn write(&self, p: &mut Project) -> Result<()> {
         p.updated_at = now_secs();
         fsx::write_json_atomic(&self.project_file(&p.id), p)?;
+        self.forget_progress(&p.id);
         Ok(())
     }
 
@@ -263,12 +280,14 @@ impl ProjectStore {
 
     pub fn save_plan(&self, id: &str, plan: &Plan) -> Result<()> {
         fsx::write_json_atomic(&self.plan_path(id), plan)?;
+        self.forget_progress(id);
         Ok(())
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
         let lock = self.project_lock(id);
         let _g = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        self.forget_progress(id);
         match fs::remove_dir_all(self.data.project(id)) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -276,22 +295,47 @@ impl ProjectStore {
         }
     }
 
+    /// Drops the remembered library progress of `id`; call after anything that changes which
+    /// audio exists or which segments are needed.
+    pub fn forget_progress(&self, id: &str) {
+        let mut map = PROGRESS.lock().unwrap_or_else(PoisonError::into_inner);
+        PROGRESS_EPOCH.fetch_add(1, Ordering::SeqCst);
+        map.remove(&self.data.project(id));
+    }
+
+    /// Share of the included speech that is cached. Computing it stats one file per segment,
+    /// so the value is kept until the project is written or its plan or audio changes.
+    fn cached_progress(&self, p: &Project) -> f32 {
+        let key = self.data.project(&p.id);
+        let epoch = PROGRESS_EPOCH.load(Ordering::SeqCst);
+        if let Some(v) = PROGRESS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&key)
+        {
+            return *v;
+        }
+        let v = self
+            .load_plan(&p.id)
+            .ok()
+            .flatten()
+            .map(|plan| {
+                cache::cached_fraction(&plan, &p.included_ids(), &self.data.project_audio(&p.id))
+            })
+            .unwrap_or(0.0);
+        let mut map = PROGRESS.lock().unwrap_or_else(PoisonError::into_inner);
+        // A forget since `epoch` means `v` may describe state that no longer exists.
+        if PROGRESS_EPOCH.load(Ordering::SeqCst) == epoch {
+            map.insert(key, v);
+        }
+        v
+    }
+
     pub fn summary(&self, p: &Project, settings: &Settings) -> ProjectSummary {
         let progress = match &p.status {
             ProjectStatus::Done { .. } if !p.is_stale(settings) => 1.0,
             ProjectStatus::Draft => 0.0,
-            _ => self
-                .load_plan(&p.id)
-                .ok()
-                .flatten()
-                .map(|plan| {
-                    cache::cached_fraction(
-                        &plan,
-                        &p.included_ids(),
-                        &self.data.project_audio(&p.id),
-                    )
-                })
-                .unwrap_or(0.0),
+            _ => self.cached_progress(p),
         };
         ProjectSummary {
             id: p.id.clone(),

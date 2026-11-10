@@ -23,11 +23,21 @@
     if (changes.length > 0) void book.patch({ chapters: changes });
   }
 
-  function renderedFraction(chapter: ChapterDetail): number {
+  function liveFor(chapter: ChapterDetail) {
     const progress = live.find((c) => c.id === chapter.id);
-    const liveFraction =
-      progress && progress.totalUnits > 0 ? progress.doneUnits / progress.totalUnits : 0;
+    return progress && progress.totalUnits > 0 ? progress : null;
+  }
+
+  function renderedFraction(chapter: ChapterDetail): number {
+    const progress = liveFor(chapter);
+    const liveFraction = progress ? progress.doneUnits / progress.totalUnits : 0;
     return Math.max(chapter.renderedFraction, liveFraction);
+  }
+
+  /** Playable once the saved state says so, or as soon as live progress shows it complete. */
+  function isPlayable(chapter: ChapterDetail): boolean {
+    const progress = liveFor(chapter);
+    return chapter.playable || (progress !== null && progress.doneUnits >= progress.totalUnits);
   }
 </script>
 
@@ -82,7 +92,7 @@
               : `~${formatDuration(chapter.estSecs)}`}
           </span>
           <div class="flex w-14 shrink-0 items-center justify-end">
-            {#if chapter.playable}
+            {#if isPlayable(chapter)}
               <Button
                 variant="ghost"
                 size="icon-xs"

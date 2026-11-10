@@ -19,15 +19,10 @@
   $effect(() => {
     const view = book;
     void view.load();
-    const subscriptions = Promise.all([
-      on.projectUpdated((p) => {
-        if (p.id === view.id) void view.load();
-      }),
-      on.renderProgress((p) => {
-        if (p.projectId === view.id) view.reloadThrottled();
-      }),
-    ]);
-    return () => void subscriptions.then((unlisten) => unlisten.forEach((fn) => fn()));
+    const subscription = on.projectUpdated((p) => {
+      if (p.id === view.id) void view.load();
+    });
+    return () => void subscription.then((unlisten) => unlisten());
   });
 </script>
 

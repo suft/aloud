@@ -274,7 +274,16 @@ fn est_secs(words: u32, speed: f32) -> u64 {
 fn detail(s: &AppState, id: &str) -> AppResult<ProjectDetail> {
     let settings = s.settings();
     let project = s.store.load(id)?;
-    let book = s.store.book(id)?;
+    // Projects imported before the selection carried words and kind still need the book file.
+    let legacy = project
+        .chapters
+        .iter()
+        .any(|c| c.words.is_none() || c.kind.is_none());
+    let book = if legacy {
+        Some(s.store.book(id)?)
+    } else {
+        None
+    };
     let current = plan::compute_inputs_hash(&project, &settings);
     let plan = s
         .store
@@ -291,8 +300,11 @@ fn detail(s: &AppState, id: &str) -> AppResult<ProjectDetail> {
         .chapters
         .iter()
         .map(|sel| {
-            let ch = book.chapters.iter().find(|c| c.id == sel.id);
-            let words = ch.map_or(0, |c| c.words);
+            let ch = book
+                .as_ref()
+                .and_then(|b| b.chapters.iter().find(|c| c.id == sel.id));
+            let words = sel.words.or(ch.map(|c| c.words)).unwrap_or(0);
+            let kind = sel.kind.or(ch.map(|c| c.kind)).unwrap_or(ChapterKind::Body);
             let est = est_secs(words, project.speed);
             if sel.included {
                 word_count += words;
@@ -318,7 +330,7 @@ fn detail(s: &AppState, id: &str) -> AppResult<ProjectDetail> {
             ChapterDetail {
                 id: sel.id.clone(),
                 title: sel.title.clone(),
-                kind: ch.map_or(ChapterKind::Body, |c| c.kind),
+                kind,
                 included: sel.included,
                 words,
                 est_secs: est,
@@ -972,6 +984,7 @@ pub async fn clear_project_cache(state: St<'_>, id: String) -> AppResult<()> {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
             _ => {}
         }
+        s.store.forget_progress(&id);
         // Done stays Done: the exported file is untouched.
         s.store.update(&id, |p| {
             Ok::<_, AppError>(matches!(

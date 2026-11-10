@@ -112,7 +112,7 @@ export interface Project {
   createdAt: number;
   updatedAt: number;
   meta: BookMeta;
-  chapters: { id: string; title: string; included: boolean }[];
+  chapters: { id: string; title: string; included: boolean; words?: number; kind?: ChapterKind }[];
   voice: string;
   speed: number;
   intro: boolean;

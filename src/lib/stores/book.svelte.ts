@@ -10,8 +10,6 @@ import {
 } from "$lib/api";
 import { app } from "./app.svelte";
 
-const RELOAD_THROTTLE_MS = 1000;
-
 /** State and actions for the book screen of one project. */
 export class BookView {
   readonly id: string;
@@ -21,7 +19,6 @@ export class BookView {
   /** Bumped when the cover file is replaced so the webview reloads it. */
   coverVersion = $state(0);
   #trickyLoading = false;
-  #throttled = false;
 
   /** Output-changing controls are frozen while the job runs. */
   locked = $derived(
@@ -39,14 +36,6 @@ export class BookView {
     } catch (e) {
       toast.error(errorMessage(e));
     }
-  }
-
-  /** Reloads at most once per second; used for the stream of render-progress events. */
-  reloadThrottled() {
-    if (this.#throttled) return;
-    this.#throttled = true;
-    void this.load();
-    setTimeout(() => (this.#throttled = false), RELOAD_THROTTLE_MS);
   }
 
   /** Applies a change; shows any failure as a toast and returns whether it succeeded. */
