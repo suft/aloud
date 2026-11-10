@@ -35,7 +35,7 @@ keepawake = "0.5"
 thiserror = "2"
 tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1", features = ["v4"] }
-dirs = "6"
+dirs = "7"
 
 [profile.release]
 lto = "thin"
