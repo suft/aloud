@@ -21,6 +21,8 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
             exit 1
           fi
+      - name: Check CHANGELOG.md has notes for this version
+        run: bash scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > /dev/null
 
   release:
     needs: [version, ci]

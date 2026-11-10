@@ -1,0 +1,38 @@
+# Changelog
+
+All notable changes to Aloud are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and versions follow [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [0.1.0]
+
+### Added
+
+- Turn a DRM-free English EPUB into a chaptered M4B audiobook with Kokoro voices, entirely on your computer.
+- Voice picker with a spoken preview, reading speed and a spoken title and author introduction.
+- Pronunciation dictionary and a "words to check" finder.
+- Built-in player.
+- Render queue with pause, resume and cancel; finished parts are kept when you stop.
+- In-app updates, signed and checked before they are installed.
+- Third-party licence notices shipped with the app.
+
+### Fixed
+
+- The Open audiobook button works again (#1).
+- A crash while planning, making or exporting a book no longer stops the render queue (#2).
+- Books with chapter titles over 255 bytes, or more than 255 chapters, export correctly (#3).
+- Aloud checks the audiobooks folder when you choose it, not after the whole render (#20).
+- Unreadable books show up in the library, marked as damaged, so you can remove them (#19).
+- Errors read as plain sentences instead of raw file or data messages (#37).
+- If Aloud can't start, it shows an error screen with a Retry button (#38).
+- Playback recovers when the audio device changes or is unplugged (#35).
+- A cut-off or empty piece of saved audio is made again instead of ending up as a gap or an error (#16).
+- Changing book details while it renders, or at the same moment another change is saved, no longer loses edits (#12).
+- A damaged settings or queue file is kept as a `.bak` copy and replaced by defaults, and Aloud tells you (#14).
+- Cancelling or pausing during planning or while writing the audiobook now stops right away (#15).
+- Pronunciation previews no longer clash with a book that is being planned, and no longer add words to the check list (#13).
+- Aloud refuses ids and file paths that don't belong to a book or image (#5).
+- Very large or booby-trapped EPUBs are rejected instead of using up your memory (#6).
+- An empty `<title/>` in a chapter file no longer swallows the whole chapter (#17).
+- A table of contents that points to several places in one file now gives one chapter for each (#18).
