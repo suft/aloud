@@ -314,8 +314,9 @@ mod tests {
             .collect()
     }
 
-    /// Serves `/blob.bin` with Range support; returns base URL and the Range headers seen.
-    fn serve(data: Vec<u8>) -> (String, Arc<Mutex<Vec<String>>>) {
+    /// Serves `/blob.bin` and records every request's Range value (`None` without a Range
+    /// header). With `honor_range == false` a Range request is answered with 416.
+    fn serve_with(data: Vec<u8>, honor_range: bool) -> (String, Arc<Mutex<Vec<Option<String>>>>) {
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let url = format!(
             "http://127.0.0.1:{}",
@@ -330,9 +331,16 @@ mod tests {
                     .iter()
                     .find(|h| h.field.equiv("Range"))
                     .map(|h| h.value.to_string());
-                let resp = match range.as_deref().and_then(|r| r.strip_prefix("bytes=")) {
+                let start = range
+                    .as_deref()
+                    .and_then(|r| r.strip_prefix("bytes="))
+                    .map(str::to_string);
+                seen.lock().unwrap().push(start.clone());
+                let resp = match start {
+                    Some(_) if !honor_range => {
+                        tiny_http::Response::from_data(Vec::new()).with_status_code(416)
+                    }
                     Some(r) => {
-                        seen.lock().unwrap().push(r.to_string());
                         let start: usize = r.trim_end_matches('-').parse().unwrap();
                         tiny_http::Response::from_data(data[start..].to_vec()).with_status_code(206)
                     }
@@ -342,6 +350,11 @@ mod tests {
             }
         });
         (url, ranges)
+    }
+
+    /// Serves `/blob.bin` with Range support.
+    fn serve(data: Vec<u8>) -> (String, Arc<Mutex<Vec<Option<String>>>>) {
+        serve_with(data, true)
     }
 
     fn asset<'a>(data: &[u8], sha: &'a str) -> Asset<'a> {
@@ -382,7 +395,10 @@ mod tests {
 
         cancel.store(false, Ordering::Relaxed);
         fetch(&url, a, dir.path(), &cancel, &|_| {}, Duration::ZERO).unwrap();
-        assert_eq!(ranges.lock().unwrap().as_slice(), [format!("{part_len}-")]);
+        assert_eq!(
+            ranges.lock().unwrap().as_slice(),
+            [None, Some(format!("{part_len}-"))]
+        );
         assert_eq!(fs::read(dir.path().join("blob.bin")).unwrap(), data);
         assert!(!dir.path().join("blob.bin.part").exists());
     }
@@ -405,5 +421,44 @@ mod tests {
         assert!(matches!(r, Err(DownloadError::Corrupt)));
         assert!(!dir.path().join("blob.bin").exists());
         assert!(!dir.path().join("blob.bin.part").exists());
+    }
+
+    #[test]
+    fn range_rejected_with_416_restarts_from_zero() {
+        let data = blob();
+        let sha = hex(&Sha256::digest(&data));
+        let (url, ranges) = serve_with(data.clone(), false);
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("blob.bin.part"), vec![0xAB; 1000]).unwrap();
+        let a = asset(&data, &sha);
+        fetch(
+            &url,
+            a,
+            dir.path(),
+            &AtomicBool::new(false),
+            &|_| {},
+            Duration::ZERO,
+        )
+        .unwrap();
+        assert_eq!(
+            ranges.lock().unwrap().as_slice(),
+            [Some("1000-".to_string()), None]
+        );
+        assert_eq!(fs::read(dir.path().join("blob.bin")).unwrap(), data);
+        assert!(!dir.path().join("blob.bin.part").exists());
+    }
+
+    #[test]
+    fn remove_deletes_model_and_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = DataDir::new(dir.path());
+        fs::create_dir_all(data.models()).unwrap();
+        let model = model_path(&data, ModelVariant::Fast);
+        let part = data.models().join("kokoro-v1.0.int8.onnx.part");
+        fs::write(&model, b"model").unwrap();
+        fs::write(&part, b"part").unwrap();
+        remove(&data, ModelVariant::Fast).unwrap();
+        assert!(!model.exists() && !part.exists());
+        remove(&data, ModelVariant::Fast).unwrap();
     }
 }
