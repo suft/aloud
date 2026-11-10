@@ -5,6 +5,7 @@
   import { Button } from "$lib/components/ui/button";
   import { app } from "$lib/stores/app.svelte";
   import { update } from "$lib/stores/update.svelte";
+  import { percent } from "$lib/format";
   import { render } from "$lib/stores/render.svelte";
   import { cn } from "$lib/utils";
 
@@ -14,6 +15,12 @@
 
   const onboarding = $derived(app.screen.name === "onboarding");
   const fraction = $derived(render.headProgress?.fraction ?? 0);
+  const queueLabel = $derived.by(() => {
+    const n = render.queue.items.length;
+    if (n === 0) return "Queue";
+    if (render.headProgress) return `Queue: ${percent(fraction)}% of the current book done`;
+    return `Queue: ${n} book${n === 1 ? "" : "s"}`;
+  });
 </script>
 
 <header
@@ -48,7 +55,7 @@
         variant="ghost"
         size="icon"
         class="relative"
-        aria-label="Queue"
+        aria-label={queueLabel}
         title="Queue"
         onclick={() => (app.queueOpen = true)}
       >

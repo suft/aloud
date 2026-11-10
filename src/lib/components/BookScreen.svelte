@@ -5,6 +5,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Tabs from "$lib/components/ui/tabs";
+  import { textOn } from "$lib/color";
   import { dur } from "$lib/motion";
   import { app } from "$lib/stores/app.svelte";
   import { BookView } from "$lib/stores/book.svelte";
@@ -32,6 +33,9 @@
 {#if project}
   <div
     style:--book-accent={project.meta.accent ?? "var(--primary)"}
+    style:--book-fg={project.meta.accent
+      ? textOn(project.meta.accent)
+      : "var(--primary-foreground)"}
     in:fade={{ duration: dur(200) }}
   >
     <BookHero {book} />

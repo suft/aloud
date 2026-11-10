@@ -61,7 +61,12 @@
         {#if details}<div>{details}</div>{/if}
       </div>
     </div>
-    <Progress value={fraction} max={1} class="h-2 [&>div]:bg-book" />
+    <Progress
+      value={fraction}
+      max={1}
+      class="h-2 [&>div]:bg-book"
+      aria-label="Audiobook progress"
+    />
     <div class="flex gap-2">
       {#if status !== "paused"}
         {#if render.queue.paused}

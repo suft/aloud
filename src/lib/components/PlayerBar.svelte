@@ -105,7 +105,8 @@
       step={1000}
       onValueChange={(v) => (scrub = v)}
       onValueCommit={commit}
-      aria-label="Position"
+      aria-label="Playback position"
+      thumbValueText={`${formatClock(scrub ?? current.positionMs)} of ${formatClock(current.durationMs)}`}
     />
     <span class="w-14 shrink-0 text-xs text-muted-foreground"
       >{formatClock(current.durationMs)}</span

@@ -128,7 +128,7 @@
               <span class="font-medium">{voice.name}</span>
               <Badge variant="secondary">{voice.grade}</Badge>
               {#if voice.recommended}
-                <span class="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                <span class="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
                   <Star class="size-3 fill-current" /> Recommended
                 </span>
               {/if}

@@ -33,7 +33,7 @@
   <div
     class={cn("flex size-full items-end p-3", className)}
     style:background="linear-gradient(160deg, color-mix(in oklch, {base} 85%, white), color-mix(in oklch,
-    {base} 55%, black))"
+    {base} 50%, black) 50%)"
   >
     {#if showTitle}
       <span class="line-clamp-4 font-serif text-base leading-tight font-semibold text-white">

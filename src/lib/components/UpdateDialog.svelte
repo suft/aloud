@@ -24,7 +24,7 @@
         {@const downloaded = update.progress?.downloaded ?? 0}
         {@const total = update.progress?.total ?? null}
         <div class="space-y-2">
-          <Progress value={downloaded} max={total ?? 100} />
+          <Progress value={downloaded} max={total ?? 100} aria-label="Update download" />
           <p class="text-sm text-muted-foreground">
             {#if total}
               Downloading… {formatBytes(downloaded)} of {formatBytes(total)}

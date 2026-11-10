@@ -173,6 +173,7 @@
             step={0.05}
             disabled={book.locked}
             aria-label="Reading speed"
+            thumbValueText={`${speed.toFixed(2)} times normal speed`}
             onValueChange={(v) => (draggingSpeed = v)}
             onValueCommit={commitSpeed}
           />
@@ -186,7 +187,7 @@
           {#if status.state === "done" && !detail.stale}
             <Button
               size="lg"
-              class="h-11 rounded-full bg-book px-6 text-white hover:bg-book/90"
+              class="h-11 rounded-full bg-book px-6 text-book-foreground hover:bg-book/90"
               onclick={() => attempt(api.openOutput(project.id))}
             >
               Open audiobook
@@ -202,7 +203,7 @@
           {:else if actionLabel}
             <Button
               size="lg"
-              class="h-11 rounded-full bg-book px-6 text-white hover:bg-book/90"
+              class="h-11 rounded-full bg-book px-6 text-book-foreground hover:bg-book/90"
               onclick={enqueue}
             >
               {actionLabel}

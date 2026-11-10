@@ -34,6 +34,7 @@
   --input: oklch(0.92 0.004 286);
   --ring: oklch(0.62 0.2 285);
   --book-accent: var(--primary);
+  --book-fg: var(--primary-foreground);
 }
 
 .dark {
@@ -82,6 +83,7 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-book: var(--book-accent);
+  --color-book-foreground: var(--book-fg);
 }
 
 @layer base {

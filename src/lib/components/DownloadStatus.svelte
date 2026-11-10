@@ -25,7 +25,11 @@
   </div>
 {:else}
   <div class="space-y-2">
-    <Progress value={progress?.downloaded ?? 0} max={progress?.total || 1} />
+    <Progress
+      value={progress?.downloaded ?? 0}
+      max={progress?.total || 1}
+      aria-label="Voice pack download"
+    />
     <div class="flex items-center justify-between gap-3 text-sm text-muted-foreground">
       <span>{summary}</span>
       <Button variant="ghost" size="sm" onclick={() => app.cancelDownload()}>Cancel</Button>
