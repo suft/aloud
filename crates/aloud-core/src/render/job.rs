@@ -169,6 +169,7 @@ impl RenderService {
         if included.is_empty() {
             return Err(Error::Invalid("Select at least one chapter first.".into()));
         }
+        export::check_output_dir(&settings.output_dir)?;
 
         // --- planning ---
         let planning = |done: usize, total: usize| RenderProgress {

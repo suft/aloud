@@ -181,6 +181,27 @@ impl Muxer {
     }
 }
 
+/// Checks that audiobooks can be saved in `dir`: an absolute path that exists (or can be created) and accepts new files.
+pub fn check_output_dir(dir: &Path) -> Result<()> {
+    if dir.as_os_str().is_empty() || !dir.is_absolute() {
+        return Err(Error::Invalid(
+            "Choose a folder for your audiobooks in Settings.".into(),
+        ));
+    }
+    let probe = dir.join(format!(".aloud-write-test-{}", uuid::Uuid::new_v4()));
+    let writable = fs::create_dir_all(dir)
+        .and_then(|()| fs::File::create_new(&probe))
+        .is_ok();
+    let _ = fs::remove_file(&probe);
+    if !writable {
+        return Err(Error::Invalid(format!(
+            "Aloud can't save audiobooks in “{}”. Choose another folder in Settings.",
+            dir.display()
+        )));
+    }
+    Ok(())
+}
+
 pub fn export(
     data: &DataDir,
     project: &Project,

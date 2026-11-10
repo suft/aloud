@@ -170,3 +170,24 @@ fn long_titles_and_more_than_255_chapters_export() {
     assert_eq!(tag.chapter_track()[0].title, expected);
     assert_eq!(tag.chapter_list()[0].title, expected);
 }
+
+#[test]
+fn output_dir_must_be_absolute_and_writable() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = dir.path();
+    assert!(matches!(
+        check_output_dir(Path::new("relative/out")),
+        Err(Error::Invalid(_))
+    ));
+    assert!(matches!(
+        check_output_dir(Path::new("")),
+        Err(Error::Invalid(_))
+    ));
+
+    fs::write(t.join("file.txt"), b"x").unwrap();
+    assert!(check_output_dir(&t.join("file.txt/sub")).is_err());
+
+    let nested = t.join("new/nested");
+    check_output_dir(&nested).unwrap();
+    assert_eq!(fs::read_dir(&nested).unwrap().count(), 0);
+}

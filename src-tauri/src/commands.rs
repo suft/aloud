@@ -98,6 +98,9 @@ pub async fn update_settings(state: St<'_>, patch: SettingsPatch) -> AppResult<S
         {
             return Err(AppError::new("That voice isn't available."));
         }
+        if let Some(dir) = &patch.output_dir {
+            export::check_output_dir(dir)?;
+        }
         let (settings, ()) = s.update_settings(|c| {
             if let Some(v) = patch.model {
                 c.model = v;
@@ -657,6 +660,7 @@ pub async fn enqueue(state: St<'_>, id: String) -> AppResult<QueueState> {
     let s = state.inner().clone();
     run(move || {
         require_models(&s)?;
+        export::check_output_dir(&s.settings().output_dir)?;
         Ok(s.render.enqueue(&id)?)
     })
     .await

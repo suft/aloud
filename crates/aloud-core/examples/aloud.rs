@@ -181,6 +181,7 @@ fn main() {
     if let Some(out) = &args.out {
         settings.output_dir = out.clone();
     }
+    settings.output_dir = std::path::absolute(&settings.output_dir).unwrap();
     settings.save(&data).unwrap();
 
     let epub_path = args.epub.as_ref().expect("--epub is required");
