@@ -833,6 +833,26 @@ pub async fn open_data_dir(state: St<'_>) -> AppResult<()> {
 }
 
 #[tauri::command]
+pub async fn open_output(state: St<'_>, id: String) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        let ProjectStatus::Done { output, .. } = s.store.load(&id)?.status else {
+            return Err(AppError::new("This audiobook isn't finished yet."));
+        };
+        if !output.is_file() {
+            return Err(AppError::new(
+                "The audiobook file is missing. It may have been moved or deleted.",
+            ));
+        }
+        s.app
+            .opener()
+            .open_path(output.to_string_lossy(), None::<&str>)
+            .map_err(|e| AppError::new(e.to_string()))
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn quit_app(state: St<'_>) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
