@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main]
   pull_request:
@@ -21,4 +22,20 @@ jobs:
           key: ${{ hashFiles('mise.toml') }}
       - run: mise run setup
       - run: mise run lint
+      - run: mise run test
+
+  test-platforms:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ hashFiles('mise.toml') }}
+      - run: mise run setup
       - run: mise run test
