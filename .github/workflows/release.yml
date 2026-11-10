@@ -4,6 +4,9 @@ on:
   push:
     tags: ["v*"]
 
+# Every job asks for what it needs. Only `publish` and `finalize` can write to the repository.
+permissions: {}
+
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
@@ -12,8 +15,12 @@ jobs:
 
   version:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Check the tag matches the version in Cargo.toml
         run: |
           version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)
@@ -24,10 +31,11 @@ jobs:
       - name: Check CHANGELOG.md has notes for this version
         run: bash scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > /dev/null
 
-  release:
+  # Builds run with a read-only token and the signing key; they only upload artifacts.
+  build:
     needs: [version, ci]
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -36,14 +44,20 @@ jobs:
           # which is also the minimum glibc for the AppImage and .deb.
           - os: ubuntu-24.04
             args: ""
+            bundle: target/release/bundle
           - os: windows-latest
             args: ""
+            bundle: target/release/bundle
           # ONNX Runtime has no prebuilt for Intel Macs, so macOS ships for Apple Silicon only.
           - os: macos-latest
             args: "--target aarch64-apple-darwin"
+            bundle: target/aarch64-apple-darwin/release/bundle
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Install system packages (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
@@ -56,22 +70,50 @@ jobs:
           # cmake-rs bakes the cmake binary path into build dirs; a toolchain bump must not reuse them.
           key: ${{ hashFiles('mise.toml') }}
       - run: mise run setup
-      - uses: tauri-apps/tauri-action@v1
+      - name: Build installers
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bun tauri build --config src-tauri/tauri.release.conf.json ${{ matrix.args }}
+      - uses: actions/upload-artifact@v7
         with:
-          tauriScript: bun tauri
-          args: --config src-tauri/tauri.release.conf.json ${{ matrix.args }}
-          tagName: ${{ github.ref_name }}
-          releaseName: "Aloud ${{ github.ref_name }}"
-          releaseDraft: true
-          updaterJsonPreferNsis: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          name: bundle-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            ${{ matrix.bundle }}/appimage/*.AppImage
+            ${{ matrix.bundle }}/appimage/*.AppImage.sig
+            ${{ matrix.bundle }}/deb/*.deb
+            ${{ matrix.bundle }}/nsis/*-setup.exe
+            ${{ matrix.bundle }}/nsis/*-setup.exe.sig
+            ${{ matrix.bundle }}/msi/*.msi
+            ${{ matrix.bundle }}/msi/*.msi.sig
+            ${{ matrix.bundle }}/dmg/*.dmg
+            ${{ matrix.bundle }}/macos/*.app.tar.gz
+            ${{ matrix.bundle }}/macos/*.app.tar.gz.sig
+
+  # The only job that creates the release; it never runs project code.
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bundle-*
+          path: bundles
+      - name: Create the draft release and latest.json
+        run: bash scripts/publish-release.sh
 
   finalize:
-    needs: release
+    needs: publish
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -82,6 +124,8 @@ jobs:
       TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Download release assets
         run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" --dir assets
       - name: Check every platform uploaded its assets
