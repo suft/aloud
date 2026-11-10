@@ -12,7 +12,7 @@ use aloud_core::{
     queue::QueueState,
     render::{Events, FinishedInfo, RenderProgress, RenderService},
     settings::{ModelVariant, Settings},
-    tts::{Accel, Engine, EngineOptions},
+    tts::{Accel, Engine, EngineOptions, Synth},
     voices::Voices,
 };
 use clap::Parser;

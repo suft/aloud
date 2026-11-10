@@ -18,13 +18,14 @@ use std::{
 pub use crate::export::FinishedInfo;
 use crate::{
     error::Result,
-    g2p::Phonemizer,
+    g2p::{Phonemize, Phonemizer},
     models,
     paths::DataDir,
     plan::{self, Plan},
     project::{ProjectStatus, ProjectStore},
     queue::QueueState,
-    settings::Settings,
+    settings::{ModelVariant, Settings},
+    tts::{Engine, EngineOptions, Synth},
     voices::Voices,
 };
 
@@ -92,6 +93,13 @@ struct State {
     progress: Option<RenderProgress>,
 }
 
+/// Opens one synthesis engine for a worker; the bool reports a GPU → CPU fallback.
+pub(crate) type OpenEngine = Box<
+    dyn Fn(&RenderService, ModelVariant, EngineOptions) -> Result<(Box<dyn Synth>, bool)>
+        + Send
+        + Sync,
+>;
+
 pub struct RenderService {
     pub(crate) data: DataDir,
     pub(crate) store: ProjectStore,
@@ -99,7 +107,8 @@ pub struct RenderService {
     state: Mutex<State>,
     cv: Condvar,
     plan_lock: Mutex<()>,
-    pub(crate) phonemizer: Phonemizer,
+    pub(crate) phonemizer: Box<dyn Phonemize>,
+    open_engine: OpenEngine,
     voices: Mutex<Option<Arc<Voices>>>,
     preview: Mutex<preview::PreviewState>,
 }
@@ -117,10 +126,35 @@ pub(crate) fn panic_text(payload: &(dyn std::any::Any + Send)) -> &str {
         .unwrap_or("unexpected internal error")
 }
 
+fn open_kokoro(
+    svc: &RenderService,
+    model: ModelVariant,
+    opts: EngineOptions,
+) -> Result<(Box<dyn Synth>, bool)> {
+    let (engine, fell_back) =
+        Engine::open(&models::model_path(&svc.data, model), svc.voices()?, opts)?;
+    Ok((Box::new(engine), fell_back))
+}
+
 impl RenderService {
     /// Creates the service and starts its scheduler thread. Rendering never starts by itself:
     /// a non-empty persisted queue comes back paused.
     pub fn new(data: DataDir, events: Arc<dyn Events>) -> Arc<Self> {
+        Self::with_backend(
+            data,
+            events,
+            Box::new(Phonemizer::new()),
+            Box::new(open_kokoro),
+        )
+    }
+
+    /// `new` with the phonemizer and the engine factory supplied, so tests can run without models.
+    pub(crate) fn with_backend(
+        data: DataDir,
+        events: Arc<dyn Events>,
+        phonemizer: Box<dyn Phonemize>,
+        open_engine: OpenEngine,
+    ) -> Arc<Self> {
         let store = ProjectStore::new(data.clone());
         let mut queue = QueueState::load(&data).unwrap_or_default();
         queue.items.retain(|id| store.exists(id));
@@ -160,7 +194,8 @@ impl RenderService {
             }),
             cv: Condvar::new(),
             plan_lock: Mutex::new(()),
-            phonemizer: Phonemizer::new(),
+            phonemizer,
+            open_engine,
             voices: Mutex::new(None),
             preview: Mutex::new(preview::PreviewState::default()),
         });
@@ -343,8 +378,14 @@ impl RenderService {
             return Ok(p);
         }
         let book = self.store.book(id)?;
-        let _ = crate::g2p::Phonemize::take_oov(&self.phonemizer);
-        let plan = plan::build_plan(&book, &project, &settings, &self.phonemizer, progress)?;
+        let _ = self.phonemizer.take_oov();
+        let plan = plan::build_plan(
+            &book,
+            &project,
+            &settings,
+            self.phonemizer.as_ref(),
+            progress,
+        )?;
         self.store.save_plan(id, &plan)?;
         Ok(plan)
     }

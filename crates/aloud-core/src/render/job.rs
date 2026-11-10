@@ -17,11 +17,11 @@ use super::{
 use crate::{
     SAMPLE_RATE,
     error::{Error, Result},
-    export, models,
+    export,
     plan::Segment,
     project::{ProjectStatus, now_secs},
     settings::{ModelVariant, Performance, Settings},
-    tts::{self, Accel, Engine, EngineOptions},
+    tts::{self, Accel, EngineOptions},
 };
 
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
@@ -316,8 +316,6 @@ impl RenderService {
         initial: Stats,
         audio_dir: &std::path::Path,
     ) -> Result<Option<JobEnd>> {
-        let voices = self.voices()?;
-        let model = models::model_path(&self.data, settings.model);
         let gpu = settings.gpu && settings.model == ModelVariant::Standard && tts::gpu_supported();
         let accel = if gpu { Accel::Gpu } else { Accel::Cpu };
         let (workers, intra) = worker_plan(settings, gpu, items.len());
@@ -330,9 +328,9 @@ impl RenderService {
         let started = Instant::now();
 
         let work = || -> Result<()> {
-            let (mut engine, fell_back) = Engine::open(
-                &model,
-                voices.clone(),
+            let (mut engine, fell_back) = (self.open_engine)(
+                self,
+                settings.model,
                 EngineOptions {
                     intra_threads: intra,
                     accel,

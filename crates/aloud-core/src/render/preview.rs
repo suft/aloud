@@ -4,12 +4,12 @@ use super::{RenderService, cache, lock};
 use crate::{
     SAMPLE_RATE,
     error::{Error, Result},
-    g2p::{Dialect, Phonemize},
+    g2p::Dialect,
     models,
     plan::{self, MAX_BATCH_PHONEMES, split_phonemes},
     pron::Dictionary,
     settings::{ModelVariant, Settings},
-    tts::{Accel, Engine, EngineOptions},
+    tts::{Accel, Engine, EngineOptions, Synth},
 };
 
 const MAX_TEXT_CHARS: usize = 400;

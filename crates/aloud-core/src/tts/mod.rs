@@ -120,9 +120,16 @@ impl Engine {
             }
         }
     }
+}
 
+/// Speech synthesis for one utterance; a trait so render tests can run without a model.
+pub trait Synth {
     /// Synthesizes one utterance (at most ~510 phoneme ids) and trims leading/trailing silence.
-    pub fn synth(&mut self, phonemes: &str, voice: &str, speed: f32) -> Result<Vec<f32>> {
+    fn synth(&mut self, phonemes: &str, voice: &str, speed: f32) -> Result<Vec<f32>>;
+}
+
+impl Synth for Engine {
+    fn synth(&mut self, phonemes: &str, voice: &str, speed: f32) -> Result<Vec<f32>> {
         let vocab = vocab();
         let mut tokens: Vec<i64> = vec![0];
         tokens.extend(phonemes.chars().filter_map(|c| vocab.get(&c).copied()));
