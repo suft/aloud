@@ -75,6 +75,15 @@ pub fn run() {
                 None => DataDir::new(app.path().app_data_dir()?),
             };
             std::fs::create_dir_all(data.root())?;
+            if let Ok(rd) = std::fs::read_dir(data.projects()) {
+                for entry in rd.flatten() {
+                    if let Some(id) = entry.file_name().to_str()
+                        && aloud_core::project::is_project_id(id)
+                    {
+                        state::allow_covers(app.handle(), &data, id);
+                    }
+                }
+            }
             // A corrupt file is kept as `.bak` and replaced by defaults, once, so the app starts.
             let mut startup_notices: Vec<&'static str> = Vec::new();
             match fsx::set_aside_if_corrupt::<Settings>(&data.settings()) {

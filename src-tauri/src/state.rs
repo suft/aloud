@@ -115,3 +115,16 @@ impl Events for TauriEvents {
         let _ = self.app.emit("notice", serde_json::json!({ "code": code }));
     }
 }
+
+/// Lets the webview load a book's cover images through the asset protocol. The scope is empty at
+/// start-up, so nothing else under the data folder (settings, other files) is reachable.
+pub fn allow_covers(app: &AppHandle, data: &DataDir, id: &str) {
+    for name in ["cover.jpg", "cover.png"] {
+        if let Err(e) = app
+            .asset_protocol_scope()
+            .allow_file(data.project(id).join(name))
+        {
+            log::warn!("couldn't allow {name} of {id}: {e}");
+        }
+    }
+}

@@ -228,6 +228,7 @@ pub async fn import_epub(state: St<'_>, path: PathBuf) -> AppResult<ProjectSumma
     let s = state.inner().clone();
     run(move || {
         let summary = epub::import(&s.data, &path)?;
+        crate::state::allow_covers(&s.app, &s.data, &summary.id);
         s.emit_project(&summary.id);
         Ok(summary)
     })
