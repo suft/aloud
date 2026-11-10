@@ -7,7 +7,7 @@ use regex::Regex;
 use roxmltree::{Document, Node};
 use scraper::{Html, Selector};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs, io,
     io::{Cursor, Read},
     path::Path,
@@ -304,11 +304,14 @@ fn parse_opf(xml: &str, opf_dir: &str) -> Option<Opf> {
     }
     if let Some(sp) = child("spine") {
         opf.toc_id = sp.attribute("toc").map(str::to_string);
+        let mut seen = HashSet::new();
         for n in sp.children().filter(|n| n.has_tag_name("itemref")) {
             if n.attribute("linear") == Some("no") {
                 continue;
             }
-            if let Some(idref) = n.attribute("idref") {
+            if let Some(idref) = n.attribute("idref")
+                && seen.insert(idref.to_string())
+            {
                 opf.spine.push(idref.to_string());
             }
         }

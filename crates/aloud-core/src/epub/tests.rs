@@ -231,6 +231,11 @@ fn covers_must_be_small_images() {
 
 /// A minimal EPUB: `docs` are `OEBPS/` files in spine order, `nav` the `(href, label)` TOC.
 fn epub_with(nav: &[(&str, &str)], docs: &[(&str, Vec<u8>)]) -> Vec<u8> {
+    epub_with_spine(nav, docs, &(0..docs.len()).collect::<Vec<_>>())
+}
+
+/// Like `epub_with`, but `spine` lists the indexes into `docs` for the `<spine>` itemrefs.
+fn epub_with_spine(nav: &[(&str, &str)], docs: &[(&str, Vec<u8>)], spine: &[usize]) -> Vec<u8> {
     let items: String = docs
         .iter()
         .enumerate()
@@ -238,7 +243,8 @@ fn epub_with(nav: &[(&str, &str)], docs: &[(&str, Vec<u8>)]) -> Vec<u8> {
             format!(r#"<item id="d{i}" href="{name}" media-type="application/xhtml+xml"/>"#)
         })
         .collect();
-    let spine: String = (0..docs.len())
+    let spine: String = spine
+        .iter()
         .map(|i| format!(r#"<itemref idref="d{i}"/>"#))
         .collect();
     let opf = format!(
@@ -432,4 +438,20 @@ fn chapters_in_latin1_utf16_and_cp1252_decode() {
         paras,
         ["Café crème.", "Hello from sixteen bits.", "Naïve text."]
     );
+}
+
+#[test]
+fn repeated_spine_entries_import_once() {
+    let bytes = epub_with_spine(
+        &[],
+        &[
+            ("a.xhtml", xhtml("<h1>A</h1><p>Alpha.</p>").into_bytes()),
+            ("b.xhtml", xhtml("<h1>B</h1><p>Beta.</p>").into_bytes()),
+        ],
+        &[0, 0, 1],
+    );
+    let (_d, data, r) = import_bytes(&bytes);
+    let book = ProjectStore::new(data).book(&r.unwrap().id).unwrap();
+    let ids: Vec<_> = book.chapters.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, ["d0", "d1"]);
 }
