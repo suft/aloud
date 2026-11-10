@@ -40,7 +40,7 @@ Tauri 2 shell, Svelte 5 UI.
 - A changed command or DTO must also change in `src/lib/api.ts` and in the backend mocks
   `scripts/screenshots/{mock,alice}.ts`.
 - Events: `render-progress`, `project-updated`, `queue-updated`, `notice`, `player-state`,
-  `model-download`, `model-download-done`, `update-progress`, `confirm-quit`.
+  `model-download`, `update-progress`, `confirm-quit`.
 - `src/lib/components/ui/` is generated shadcn-svelte code; don't restyle it beyond what is needed.
 - Prettier ignores `src-tauri/` and `crates/`; rustfmt covers them.
 - ONNX Runtime comes from the `onnxruntime-1.31.0` mirror release through `ORT_CACHE_DIR`

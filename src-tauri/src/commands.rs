@@ -155,11 +155,13 @@ pub async fn update_settings(state: St<'_>, patch: SettingsPatch) -> AppResult<S
 
 // ---------- voice packs ----------
 
-#[derive(Serialize, Clone)]
-struct DownloadDone {
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
+/// Clears `AppState::downloading` when the download ends, even by panic.
+struct DownloadingGuard<'a>(&'a AtomicBool);
+
+impl Drop for DownloadingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 #[tauri::command]
@@ -169,27 +171,12 @@ pub async fn download_models(state: St<'_>, variant: ModelVariant) -> AppResult<
         if s.downloading.swap(true, Ordering::SeqCst) {
             return Err(AppError::new("A download is already in progress."));
         }
+        let _guard = DownloadingGuard(&s.downloading);
         s.download_cancel.store(false, Ordering::SeqCst);
         let app = s.app.clone();
-        let result = models::download(&s.data, variant, &s.download_cancel, &|p| {
+        match models::download(&s.data, variant, &s.download_cancel, &|p| {
             let _ = app.emit("model-download", p);
-        });
-        s.downloading.store(false, Ordering::SeqCst);
-        let (ok, message) = match &result {
-            Ok(()) => (true, None),
-            Err(models::DownloadError::Cancelled) => {
-                (false, Some("Download cancelled".to_string()))
-            }
-            Err(e) => (false, Some(e.to_string())),
-        };
-        let _ = s.app.emit(
-            "model-download-done",
-            DownloadDone {
-                ok,
-                message: message.clone(),
-            },
-        );
-        match result {
+        }) {
             Ok(()) => Ok(()),
             Err(models::DownloadError::Cancelled) => Err(AppError::new("Download cancelled")),
             Err(e) => Err(e.into()),
@@ -207,6 +194,11 @@ pub fn cancel_download(state: St<'_>) {
 pub async fn remove_model(state: St<'_>, variant: ModelVariant) -> AppResult<ModelsStatus> {
     let s = state.inner().clone();
     run(move || {
+        if s.downloading.load(Ordering::SeqCst) {
+            return Err(AppError::new(
+                "Wait for the download to finish, or cancel it, before removing a voice pack.",
+            ));
+        }
         if s.settings().model == variant {
             return Err(AppError::new(
                 "That voice pack is in use. Switch to the other one first.",

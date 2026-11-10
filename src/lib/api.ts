@@ -285,8 +285,6 @@ export const on = {
   projectUpdated: (cb: (p: { id: string }) => void) => subscribe("project-updated", cb),
   queueUpdated: (cb: (q: QueueState) => void) => subscribe("queue-updated", cb),
   modelDownload: (cb: (p: DownloadProgress) => void) => subscribe("model-download", cb),
-  modelDownloadDone: (cb: (p: { ok: boolean; message?: string }) => void) =>
-    subscribe("model-download-done", cb),
   playerState: (cb: (s: PlayerState) => void) => subscribe("player-state", cb),
   notice: (cb: (n: { code: string }) => void) => subscribe("notice", cb),
   updateProgress: (cb: (p: UpdateProgress) => void) =>
