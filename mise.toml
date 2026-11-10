@@ -12,7 +12,7 @@ ORT_CACHE_DIR = "{{config_root}}/.ort-cache"
 
 [tasks.setup]
 description = "Install JS deps, fetch bundled espeak-ng data and ONNX Runtime, and generate the third-party notices"
-run = ["bun install", "bun scripts/fetch-espeak.ts", "bun scripts/fetch-onnxruntime.ts", "bun scripts/notices.ts"]
+run = ["bun install --frozen-lockfile", "bun scripts/fetch-espeak.ts", "bun scripts/fetch-onnxruntime.ts", "bun scripts/notices.ts"]
 
 [tasks.notices]
 description = "Regenerate src-tauri/resources/THIRD-PARTY-NOTICES.txt (cargo-about + npm licences)"
@@ -26,7 +26,7 @@ depends = ["setup"]
 run = "bun tauri build"
 depends = ["setup"]
 
-# CI sets ALOUD_CARGO_ARGS (see .github/cargo-ci.toml); local runs leave it empty.
+# CI sets ALOUD_CARGO_ARGS (--locked, plus .github/cargo-ci.toml on Linux); local runs leave it empty.
 [tasks.test]
 run = ["cargo test {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} --workspace --exclude aloud", "bun run check"]
 

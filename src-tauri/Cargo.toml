@@ -2,6 +2,7 @@
 name = "aloud"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 description = "Turn any EPUB into an audiobook on your computer."
