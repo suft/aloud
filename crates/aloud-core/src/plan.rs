@@ -465,7 +465,7 @@ fn sample_around(text: &str, start: usize, end: usize) -> String {
     )
 }
 
-fn floor_boundary(s: &str, mut i: usize) -> usize {
+pub(crate) fn floor_boundary(s: &str, mut i: usize) -> usize {
     while i > 0 && !s.is_char_boundary(i) {
         i -= 1;
     }
