@@ -9,13 +9,19 @@ use crate::error::{Error, Result};
 
 /// Serializes `value` to `path` via a synced temp file and an atomic rename.
 pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
+    write_atomic(path, &serde_json::to_vec(value).map_err(io::Error::other)?)
+}
+
+/// Writes `bytes` to `path` via a synced, uniquely named temp file and an atomic rename.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension(format!("json.{}.tmp", uuid::Uuid::new_v4().simple()));
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let tmp = path.with_extension(format!("{ext}.{}.tmp", uuid::Uuid::new_v4().simple()));
     let write = || -> io::Result<()> {
         let mut f = File::create(&tmp)?;
-        serde_json::to_writer(io::BufWriter::new(&mut f), value).map_err(io::Error::other)?;
+        f.write_all(bytes)?;
         f.flush()?;
         f.sync_all()?;
         drop(f);

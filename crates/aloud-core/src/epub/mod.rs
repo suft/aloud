@@ -10,7 +10,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs, io,
     io::{Cursor, Read},
-    path::Path,
+    path::{Path, PathBuf},
     sync::LazyLock,
 };
 use zip::ZipArchive;
@@ -18,6 +18,7 @@ use zip::ZipArchive;
 use crate::{
     book::{Block, Book, BookMeta, Chapter, ChapterKind},
     error::Result,
+    fsx,
     paths::DataDir,
     project::{Project, ProjectStatus, ProjectStore, ProjectSummary},
     settings::Settings,
@@ -647,11 +648,11 @@ pub fn import(data: &DataDir, epub_path: &Path) -> Result<ProjectSummary> {
     let dir = data.project(&id);
     fs::create_dir_all(&dir)?;
     if let Some(bytes) = cover
-        && let Some((name, out)) = cover::prepare(&bytes)
+        && let Some(p) = cover::prepare(&bytes)
     {
-        fs::write(dir.join(name), out)?;
-        book.meta.cover_file = Some(name.to_string());
-        book.meta.accent = cover::accent(&bytes);
+        fsx::write_atomic(&dir.join(p.name), &p.bytes)?;
+        book.meta.cover_file = Some(p.name.to_string());
+        book.meta.accent = p.accent;
     }
     store.save_book(&id, &book)?;
     let file_name = epub_path
@@ -668,7 +669,11 @@ pub fn import(data: &DataDir, epub_path: &Path) -> Result<ProjectSummary> {
 const COVER_MAX_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Copies a user-chosen image in as the project cover.
-pub fn set_cover(data: &DataDir, project: &mut Project, image_path: &Path) -> Result<()> {
+pub fn set_cover(
+    data: &DataDir,
+    project: &mut Project,
+    image_path: &Path,
+) -> Result<Option<PathBuf>> {
     let ext = image_path
         .extension()
         .and_then(|e| e.to_str())
@@ -688,22 +693,14 @@ pub fn set_cover(data: &DataDir, project: &mut Project, image_path: &Path) -> Re
         ));
     }
     let bytes = fs::read(image_path)?;
-    let (name, out) = cover::prepare(&bytes)
+    let p = cover::prepare(&bytes)
         .ok_or_else(|| crate::Error::Invalid("That image couldn't be read.".into()))?;
     let dir = data.project(&project.id);
-    for old in ["cover.jpg", "cover.png"] {
-        let _ = fs::remove_file(dir.join(old));
-    }
-    fsx_write(&dir.join(name), &out)?;
-    project.meta.cover_file = Some(name.to_string());
-    project.meta.accent = cover::accent(&bytes);
-    Ok(())
-}
-
-fn fsx_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, bytes)?;
-    fs::rename(tmp, path)
+    // The new cover is on disk before the old one is dropped, so a failed write loses nothing.
+    fsx::write_atomic(&dir.join(p.name), &p.bytes)?;
+    let old = project.meta.cover_file.replace(p.name.to_string());
+    project.meta.accent = p.accent;
+    Ok(old.filter(|o| o != p.name).map(|o| dir.join(o)))
 }
 
 #[cfg(test)]

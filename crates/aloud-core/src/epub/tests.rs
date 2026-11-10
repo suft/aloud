@@ -229,6 +229,23 @@ fn covers_must_be_small_images() {
     set_cover(&data, &mut project, &ok).unwrap_or_else(|e| panic!("{e}"));
 }
 
+#[test]
+fn failed_cover_write_keeps_the_old_cover() {
+    let (dir, data, r) = import_bytes(&build_epub(&[]));
+    let id = r.unwrap().id;
+    let mut project = ProjectStore::new(data.clone()).load(&id).unwrap();
+    assert_eq!(project.meta.cover_file.as_deref(), Some("cover.png"));
+    // A directory where cover.jpg must go makes the new cover's final rename fail.
+    fs::create_dir_all(data.project(&id).join("cover.jpg")).unwrap();
+    let webp = dir.path().join("new.webp");
+    image::RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 200]))
+        .save_with_format(&webp, image::ImageFormat::WebP)
+        .unwrap();
+    assert!(set_cover(&data, &mut project, &webp).is_err());
+    assert_eq!(project.meta.cover_file.as_deref(), Some("cover.png"));
+    assert!(data.project(&id).join("cover.png").is_file());
+}
+
 /// A minimal EPUB: `docs` are `OEBPS/` files in spine order, `nav` the `(href, label)` TOC.
 fn epub_with(nav: &[(&str, &str)], docs: &[(&str, Vec<u8>)]) -> Vec<u8> {
     epub_with_spine(nav, docs, &(0..docs.len()).collect::<Vec<_>>())

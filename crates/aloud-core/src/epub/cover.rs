@@ -6,17 +6,33 @@ use std::io::Cursor;
 const KEEP_AS_IS_MAX: usize = 2 * 1024 * 1024;
 const MAX_SIDE: u32 = 1400;
 
-/// Returns `(file name, bytes)` for the cover as stored in the project directory.
-pub fn prepare(bytes: &[u8]) -> Option<(&'static str, Vec<u8>)> {
+/// A cover ready to be stored in the project directory.
+pub struct Prepared {
+    pub name: &'static str,
+    pub bytes: Vec<u8>,
+    pub accent: Option<String>,
+}
+
+/// Decodes the image once. The bytes to store are kept as they are for a JPEG or PNG under 2 MB,
+/// otherwise the image is resized to at most 1400 px and saved as JPEG (quality 88).
+pub fn prepare(bytes: &[u8]) -> Option<Prepared> {
     let format = image::guess_format(bytes).ok()?;
+    let img = image::load_from_memory(bytes).ok()?;
+    let accent = accent_of(&img);
     if bytes.len() < KEEP_AS_IS_MAX {
-        match format {
-            ImageFormat::Jpeg => return Some(("cover.jpg", bytes.to_vec())),
-            ImageFormat::Png => return Some(("cover.png", bytes.to_vec())),
-            _ => {}
+        let name = match format {
+            ImageFormat::Jpeg => Some("cover.jpg"),
+            ImageFormat::Png => Some("cover.png"),
+            _ => None,
+        };
+        if let Some(name) = name {
+            return Some(Prepared {
+                name,
+                bytes: bytes.to_vec(),
+                accent,
+            });
         }
     }
-    let img = image::load_from_memory(bytes).ok()?;
     let (w, h) = img.dimensions();
     let img = if w.max(h) > MAX_SIDE {
         img.resize(MAX_SIDE, MAX_SIDE, FilterType::Lanczos3)
@@ -26,12 +42,15 @@ pub fn prepare(bytes: &[u8]) -> Option<(&'static str, Vec<u8>)> {
     let mut out = Cursor::new(Vec::new());
     let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 88);
     img.to_rgb8().write_with_encoder(enc).ok()?;
-    Some(("cover.jpg", out.into_inner()))
+    Some(Prepared {
+        name: "cover.jpg",
+        bytes: out.into_inner(),
+        accent,
+    })
 }
 
 /// Dominant saturated hue of the image as `#rrggbb`.
-pub fn accent(bytes: &[u8]) -> Option<String> {
-    let img: DynamicImage = image::load_from_memory(bytes).ok()?;
+fn accent_of(img: &DynamicImage) -> Option<String> {
     let small = img.resize_exact(32, 32, FilterType::Triangle).to_rgb8();
 
     #[derive(Default, Clone, Copy)]
@@ -95,9 +114,8 @@ mod tests {
         let mut png = Vec::new();
         img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
             .unwrap();
-        let hex = accent(&png).unwrap();
-        assert_eq!(hex, "#dc2828");
-        let (name, _) = prepare(&png).unwrap();
-        assert_eq!(name, "cover.png");
+        let p = prepare(&png).unwrap();
+        assert_eq!(p.accent.as_deref(), Some("#dc2828"));
+        assert_eq!(p.name, "cover.png");
     }
 }

@@ -489,10 +489,14 @@ pub async fn set_cover(state: St<'_>, id: String, path: PathBuf) -> AppResult<Pr
     let s = state.inner().clone();
     run(move || {
         check_id(&id)?;
+        let mut stale = None;
         s.store.update(&id, |p| {
-            epub::set_cover(&s.data, p, &path)?;
+            stale = epub::set_cover(&s.data, p, &path)?;
             Ok::<_, AppError>(true)
         })?;
+        if let Some(old) = stale {
+            let _ = std::fs::remove_file(old);
+        }
         s.emit_project(&id);
         detail(&s, &id)
     })
