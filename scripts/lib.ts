@@ -7,6 +7,7 @@ import {
   renameSync,
   statSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
 import { Readable } from "node:stream";
@@ -47,4 +48,16 @@ export async function fetchVerified(
   }
   renameSync(part, dest);
   console.log(`${label}: ok`);
+}
+
+/** Downloads the public-domain Alice in Wonderland EPUB (dev fixture) unless `dest` exists. */
+export async function ensureAlice(dest: string): Promise<void> {
+  if (existsSync(dest)) return;
+  const res = await fetch("https://www.gutenberg.org/ebooks/11.epub3.images", {
+    redirect: "follow",
+  });
+  if (!res.ok) throw new Error(`alice.epub: HTTP ${res.status}`);
+  mkdirSync(dirname(dest), { recursive: true });
+  writeFileSync(dest, new Uint8Array(await res.arrayBuffer()));
+  console.log("alice.epub: ok");
 }
