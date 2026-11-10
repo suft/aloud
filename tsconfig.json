@@ -13,8 +13,7 @@
     "noEmit": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["svelte", "vite/client", "node"],
-    "baseUrl": ".",
-    "paths": { "$lib": ["src/lib"], "$lib/*": ["src/lib/*"] }
+    "paths": { "$lib": ["./src/lib"], "$lib/*": ["./src/lib/*"] }
   },
   "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
 }

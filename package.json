@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p scripts/tsconfig.json",
+    "check": "svelte-check --tsgo --tsconfig ./tsconfig.json && tsc -p scripts/tsconfig.json",
     "lint": "prettier --check .",
     "format": "prettier --write .",
     "tauri": "tauri"
@@ -33,13 +33,14 @@
     "@tauri-apps/cli": "^2",
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
+    "@typescript/native": "npm:typescript@7",
     "fflate": "^0.8.3",
     "playwright": "^1.65.0",
     "prettier": "^3",
     "prettier-plugin-svelte": "^4",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "svelte-check": "^4",
-    "typescript": "^5",
+    "typescript": "~6",
     "vite": "^7"
   }
 }
