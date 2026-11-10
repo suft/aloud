@@ -65,3 +65,51 @@ jobs:
           releaseName: "Aloud ${{ github.ref_name }}"
           releaseDraft: true
           updaterJsonPreferNsis: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  finalize:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download release assets
+        run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" --dir assets
+      - name: Check every platform uploaded its assets
+        run: |
+          v="${TAG#v}"
+          missing=0
+          for f in "Aloud_${v}_amd64.AppImage" "Aloud_${v}_amd64.AppImage.sig" "Aloud_${v}_amd64.deb" \
+                   "Aloud_${v}_x64-setup.exe" "Aloud_${v}_x64-setup.exe.sig" \
+                   "Aloud_${v}_x64_en-US.msi" "Aloud_${v}_x64_en-US.msi.sig" \
+                   "Aloud_${v}_aarch64.dmg" "Aloud_${v}_aarch64.app.tar.gz" "Aloud_${v}_aarch64.app.tar.gz.sig" \
+                   "latest.json"; do
+            [ -f "assets/$f" ] || { echo "::error::Missing release asset $f"; missing=1; }
+          done
+          for p in linux-x86_64 windows-x86_64 darwin-aarch64; do
+            jq -e --arg p "$p" '.platforms[$p].url and .platforms[$p].signature' assets/latest.json >/dev/null \
+              || { echo "::error::latest.json has no $p entry"; missing=1; }
+          done
+          exit $missing
+      - name: Upload SHA256SUMS
+        run: |
+          (cd assets && sha256sum -- *) > SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --clobber -R "$GITHUB_REPOSITORY"
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: SHA256SUMS
+      - uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: aloud-${{ github.ref_name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Upload SBOM
+        run: gh release upload "$TAG" "aloud-$TAG.spdx.json" --clobber -R "$GITHUB_REPOSITORY"
