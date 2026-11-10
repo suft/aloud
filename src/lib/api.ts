@@ -78,6 +78,8 @@ export type ProjectStatus =
   | { state: "done"; output: string; finishedAt: number; inputsHash: string }
   | { state: "failed"; message: string };
 
+export type AboutDoc = "source" | "license" | "notices";
+
 export interface ProjectSummary {
   id: string;
   title: string;
@@ -255,6 +257,7 @@ export const api = {
   clearProjectCache: (id: string) => call<void>("clear_project_cache", { id }),
   storageSize: () => call<number>("storage_size"),
   openDataDir: () => call<void>("open_data_dir"),
+  openAbout: (doc: AboutDoc) => call<void>("open_about", { doc }),
   openOutput: (id: string) => call<void>("open_output", { id }),
 
   checkForUpdate: (force: boolean) => call<UpdateInfo | null>("check_for_update", { force }),

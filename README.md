@@ -101,6 +101,7 @@ mise install && mise run setup && mise run dev
 | `mise run models`       | Download the models and a public-domain test book into `.dev-data/`          |
 | `mise run e2e`          | Render two chapters of the test book with the CLI example                    |
 | `mise run smoke`        | Render a tiny generated EPUB end to end (fast model; CI runs this)           |
+| `mise run notices`      | Regenerate THIRD-PARTY-NOTICES.txt (cargo-about + npm licences)              |
 | `mise run screenshots`  | Regenerate the README screenshots (headless Chromium, mocked backend)        |
 
 The Rust core (`crates/aloud-core`) has no UI dependency. `crates/aloud-core/examples/aloud.rs` is a CLI over the
@@ -108,5 +109,17 @@ same render service (`--list`, `--chapters 1-3`, `--voice`, `--pron "word=sounds
 
 ## License
 
-GPL-3.0-or-later, because espeak-ng is linked statically. Kokoro-82M (Apache-2.0), misaki (Apache-2.0/MIT),
-ONNX Runtime (MIT).
+Aloud is GPL-3.0-or-later ([LICENSE](LICENSE)). espeak-ng, which is compiled in, is GPL-3.0-or-later too.
+
+It also uses:
+
+- Kokoro-82M (Apache-2.0), downloaded on first launch
+- misaki-rs (MIT)
+- ONNX Runtime (MIT)
+- Inter (OFL-1.1)
+
+The installers include `LICENSE.txt` and `THIRD-PARTY-NOTICES.txt` (every Rust crate and JavaScript package
+with its licence text). `mise run setup` generates the notices; `mise run notices` regenerates them.
+
+The AAC encoder, rusty_aac 2.x, is Apache-2.0. Its authors state that it was written from ISO/IEC 14496-3
+and that FFmpeg appears only in comments and its test harness. It grants no patent rights.

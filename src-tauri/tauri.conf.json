@@ -56,10 +56,14 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/espeak-ng-data/": "espeak-ng-data/"
+      "resources/espeak-ng-data/": "espeak-ng-data/",
+      "../LICENSE": "LICENSE.txt",
+      "resources/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
     },
     "category": "Utility",
     "license": "GPL-3.0-or-later",
+    "licenseFile": "../LICENSE",
+    "copyright": "Copyright © 2026 suft",
     "shortDescription": "Turn any EPUB into an audiobook on your computer.",
     "longDescription": "Aloud turns a DRM-free English EPUB into a chaptered M4B audiobook using the Kokoro voice model. Everything runs on your computer; nothing is uploaded."
   },

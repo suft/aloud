@@ -21,7 +21,7 @@ use std::{
     sync::{Arc, atomic::Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -952,6 +952,45 @@ pub async fn open_data_dir(state: St<'_>) -> AppResult<()> {
         s.app
             .opener()
             .open_path(s.data.root().to_string_lossy(), None::<&str>)
+            .map_err(|e| AppError::new(e.to_string()))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AboutDoc {
+    Source,
+    License,
+    Notices,
+}
+
+/// Opens the source repository in the browser, or a licence document shipped with the app.
+#[tauri::command]
+pub async fn open_about(state: St<'_>, doc: AboutDoc) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || {
+        let opener = s.app.opener();
+        let target = match doc {
+            AboutDoc::Source => {
+                return opener
+                    .open_url("https://github.com/suft/aloud", None::<&str>)
+                    .map_err(|e| AppError::new(e.to_string()));
+            }
+            AboutDoc::License => "LICENSE.txt",
+            AboutDoc::Notices => "THIRD-PARTY-NOTICES.txt",
+        };
+        let path = s
+            .app
+            .path()
+            .resource_dir()
+            .map_err(|e| AppError::new(e.to_string()))?
+            .join(target);
+        if !path.is_file() {
+            return Err(AppError::new("That file isn't included in this build."));
+        }
+        opener
+            .open_path(path.to_string_lossy(), None::<&str>)
             .map_err(|e| AppError::new(e.to_string()))
     })
     .await

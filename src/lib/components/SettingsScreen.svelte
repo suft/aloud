@@ -196,11 +196,39 @@
 
   <SettingsCard title="About">
     <div class="space-y-2 text-sm text-muted-foreground">
-      <p>Aloud {app.version}</p>
       <p>
-        Kokoro-82M (Apache-2.0), espeak-ng (GPL-3.0), misaki (Apache-2.0/MIT), ONNX Runtime (MIT).
-        Aloud is free software under GPL-3.0.
+        Aloud {app.version} is free software under the GNU General Public License, version 3 or later.
       </p>
+      <p>
+        It uses Kokoro-82M (Apache-2.0), espeak-ng (GPL-3.0-or-later), misaki-rs (MIT), ONNX Runtime
+        (MIT) and the Inter font (OFL-1.1).
+      </p>
+      <div class="flex flex-wrap gap-x-4">
+        <Button
+          variant="link"
+          size="sm"
+          class="h-auto px-0"
+          onclick={() => attempt(api.openAbout("source"))}
+        >
+          Source code
+        </Button>
+        <Button
+          variant="link"
+          size="sm"
+          class="h-auto px-0"
+          onclick={() => attempt(api.openAbout("license"))}
+        >
+          Licence
+        </Button>
+        <Button
+          variant="link"
+          size="sm"
+          class="h-auto px-0"
+          onclick={() => attempt(api.openAbout("notices"))}
+        >
+          Third-party notices
+        </Button>
+      </div>
     </div>
     <div class="flex items-center justify-between gap-4">
       <Label for="check-updates" class="font-normal">Check for updates automatically</Label>

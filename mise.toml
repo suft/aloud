@@ -2,13 +2,18 @@
 rust = { version = "1.99", components = "clippy,rustfmt" }
 bun = "1.4"
 cmake = "4"
+"github:EmbarkStudios/cargo-about" = "0.9.3"
 
 [env]
 PIPER_ESPEAKNG_DATA_DIRECTORY = "{{config_root}}/src-tauri/resources"
 
 [tasks.setup]
-description = "Install JS deps and fetch bundled espeak-ng data"
-run = ["bun install", "bun scripts/fetch-espeak.ts"]
+description = "Install JS deps, fetch bundled espeak-ng data and generate the third-party notices"
+run = ["bun install", "bun scripts/fetch-espeak.ts", "bun scripts/notices.ts"]
+
+[tasks.notices]
+description = "Regenerate src-tauri/resources/THIRD-PARTY-NOTICES.txt (cargo-about + npm licences)"
+run = "bun scripts/notices.ts"
 
 [tasks.dev]
 run = "bun tauri dev"

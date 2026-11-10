@@ -7,3 +7,4 @@ crates/
 bun.lock
 LICENSE
 src/lib/components/ui/
+about.hbs
