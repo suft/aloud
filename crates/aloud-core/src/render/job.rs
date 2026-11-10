@@ -351,6 +351,8 @@ impl RenderService {
                     Ok(a) => a,
                     Err(_) => engine.synth(&item.phonemes, voice, item.speed)?,
                 };
+                // An empty file would read as a failed write; store one silent sample instead.
+                let audio = if audio.is_empty() { vec![0.0] } else { audio };
                 cache::write_pcm(audio_dir, &item.key, &audio)?;
                 let mut st = lock(&stats);
                 for &(ci, u) in occurrences.get(&item.key).into_iter().flatten() {

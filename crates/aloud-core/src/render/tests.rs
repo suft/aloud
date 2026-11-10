@@ -278,6 +278,44 @@ fn renders_and_exports_with_a_fake_engine() {
     );
 }
 
+fn first_pcm(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    for e in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = e.path();
+        if path.is_dir() {
+            if let Some(p) = first_pcm(&path) {
+                return Some(p);
+            }
+        } else if path.extension().is_some_and(|x| x == "pcm") {
+            return Some(path);
+        }
+    }
+    None
+}
+
+#[test]
+fn truncated_cache_file_is_rendered_again() {
+    let (_dir, data) = fixture(&["book"], 10);
+    let (svc, calls, rx) = service(&data, Duration::ZERO);
+    svc.enqueue("book").unwrap();
+    rx.recv_timeout(TIMEOUT).unwrap().1.expect("render failed");
+    svc.wait_idle(Duration::from_secs(5));
+    let first = calls.load(Ordering::SeqCst);
+
+    let pcm = first_pcm(&data.project_audio("book")).expect("a cached part");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&pcm)
+        .unwrap()
+        .set_len(3)
+        .unwrap();
+    svc.enqueue("book").unwrap();
+    rx.recv_timeout(TIMEOUT).unwrap().1.expect("render failed");
+
+    assert_eq!(calls.load(Ordering::SeqCst), first + 1);
+    let len = std::fs::metadata(&pcm).unwrap().len();
+    assert!(len > 3 && len.is_multiple_of(2), "{len}");
+}
+
 #[test]
 fn pause_keeps_finished_parts_and_resume_renders_only_the_rest() {
     let (_dir, data) = fixture(&["book"], 40);
