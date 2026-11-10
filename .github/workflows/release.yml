@@ -21,17 +21,17 @@ jobs:
             args: "--target aarch64-apple-darwin"
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install system packages (Linux)
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             libasound2-dev libclang-dev libc++-dev libc++abi-dev build-essential libssl-dev
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v5
       - uses: Swatinem/rust-cache@v2
       - run: mise run setup
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
