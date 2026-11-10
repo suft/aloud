@@ -71,8 +71,15 @@ Download the installer for your system from the [Releases](../../releases) page.
 
 The builds are not code-signed:
 
-- **macOS** (Apple Silicon): right-click the app, choose **Open**, then confirm. Intel Macs are not supported
-  because ONNX Runtime ships no Intel macOS build.
+- **macOS** (Apple Silicon):
+  1. Open the `.dmg` and drag Aloud to Applications.
+  2. Open Aloud. When macOS blocks it, click **Done**.
+  3. In **System Settings → Privacy & Security**, click **Open Anyway** next to the message about Aloud and confirm.
+
+  On macOS 14 and earlier, right-click the app and choose **Open** instead. If macOS says Aloud "is damaged and
+  can't be opened", run `xattr -dr com.apple.quarantine /Applications/Aloud.app` in Terminal and open it again.
+  Intel Macs are not supported because ONNX Runtime ships no Intel macOS build.
+
 - **Windows**: when SmartScreen appears, click **More info → Run anyway**.
 - **Linux** (x86_64): AppImage or `.deb`. Needs glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 or later).
   The AppImage bundles WebKitGTK; the `.deb` depends on `libwebkit2gtk-4.1-0`, which apt installs. Releases are
