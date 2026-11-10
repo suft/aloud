@@ -1,7 +1,7 @@
 <script lang="ts">
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, type ModelVariant, type Performance, type Theme } from "$lib/api";
+  import { api, type ModelVariant, type Performance, type StorageSize, type Theme } from "$lib/api";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Label } from "$lib/components/ui/label";
@@ -17,14 +17,23 @@
   import DownloadStatus from "./DownloadStatus.svelte";
   import SettingsCard from "./SettingsCard.svelte";
 
-  let storage = $state<number | null>(null);
+  let storage = $state<StorageSize | null>(null);
 
   const settings = $derived(app.settings);
   const gpuDisabled = $derived(!app.gpuSupported || settings.model === "fast");
 
   $effect(() => {
-    void attempt(api.storageSize()).then((size) => (storage = size ?? null));
+    void loadStorage();
   });
+
+  async function loadStorage() {
+    storage = (await attempt(api.storageSize())) ?? null;
+  }
+
+  async function clearPreviews() {
+    await attempt(api.clearPreviews());
+    await loadStorage();
+  }
 
   function selectModel(variant: ModelVariant) {
     if (variant === settings.model || app.downloading) return;
@@ -173,10 +182,24 @@
     <div class="flex items-center justify-between gap-4 text-sm">
       <span>
         Saved audio for your books:
-        <span class="font-medium">{storage === null ? "…" : formatBytes(storage)}</span>
+        <span class="font-medium">{storage === null ? "…" : formatBytes(storage.books)}</span>
       </span>
       <Button variant="link" size="sm" onclick={() => attempt(api.openDataDir())}>
         Open data folder
+      </Button>
+    </div>
+    <div class="flex items-center justify-between gap-4 text-sm">
+      <span>
+        Voice previews:
+        <span class="font-medium">{storage === null ? "…" : formatBytes(storage.previews)}</span>
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!storage || storage.previews === 0}
+        onclick={clearPreviews}
+      >
+        Clear previews
       </Button>
     </div>
   </SettingsCard>

@@ -22,7 +22,7 @@ mockIPC(
       case "get_tricky_words":
         return TRICKY;
       case "storage_size":
-        return 412_000_000;
+        return { books: 412_000_000, previews: 3_000_000 };
       case "project_cache_size":
         return 96_000_000;
       default:

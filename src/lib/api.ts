@@ -221,6 +221,11 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   }
 }
 
+export interface StorageSize {
+  books: number;
+  previews: number;
+}
+
 export const api = {
   getAppState: () => call<AppStateDto>("get_app_state"),
   updateSettings: (patch: SettingsPatch) => call<Settings>("update_settings", { patch }),
@@ -264,7 +269,8 @@ export const api = {
 
   projectCacheSize: (id: string) => call<number>("project_cache_size", { id }),
   clearProjectCache: (id: string) => call<void>("clear_project_cache", { id }),
-  storageSize: () => call<number>("storage_size"),
+  storageSize: () => call<StorageSize>("storage_size"),
+  clearPreviews: () => call<void>("clear_previews"),
   openDataDir: () => call<void>("open_data_dir"),
   openAbout: (doc: AboutDoc) => call<void>("open_about", { doc }),
   openOutput: (id: string) => call<void>("open_output", { id }),

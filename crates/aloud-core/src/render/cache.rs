@@ -6,6 +6,7 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use crate::plan::{Plan, Segment};
@@ -95,6 +96,34 @@ pub fn prune(audio_dir: &Path, keep: &HashSet<&str>) -> u64 {
     removed
 }
 
+/// Marks a cached segment as recently used.
+pub fn touch(audio_dir: &Path, key: &str) {
+    if let Ok(f) = fs::File::options()
+        .write(true)
+        .open(pcm_path(audio_dir, key))
+    {
+        let _ = f.set_modified(SystemTime::now());
+    }
+}
+
+/// Deletes the least recently modified segments until the total is at most `cap` bytes.
+pub fn trim_to(dir: &Path, cap: u64) {
+    let mut files = pcm_files(dir);
+    let mut total: u64 = files.iter().map(|(_, m)| m.len()).sum();
+    if total <= cap {
+        return;
+    }
+    files.sort_by_key(|(_, m)| m.modified().unwrap_or(SystemTime::UNIX_EPOCH));
+    for (path, meta) in files {
+        if total <= cap {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total -= meta.len();
+        }
+    }
+}
+
 pub fn read_pcm(audio_dir: &Path, key: &str) -> io::Result<Vec<f32>> {
     read_pcm_file(&pcm_path(audio_dir, key))
 }
@@ -182,5 +211,26 @@ mod tests {
         assert_eq!(prune(dir.path(), &keep), 1);
         assert!(exists(dir.path(), &a));
         assert!(!exists(dir.path(), &b));
+    }
+
+    #[test]
+    fn trim_to_drops_oldest_first() {
+        use std::time::{Duration, SystemTime};
+        let dir = tempfile::tempdir().unwrap();
+        let keys = ["aa", "bb", "cc"].map(|k| k.repeat(16));
+        let base = SystemTime::now() - Duration::from_secs(100);
+        for (i, key) in keys.iter().enumerate() {
+            write_pcm(dir.path(), key, &[0.1; 1000]).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(pcm_path(dir.path(), key))
+                .unwrap()
+                .set_modified(base + Duration::from_secs(i as u64))
+                .unwrap();
+        }
+        trim_to(dir.path(), 4500);
+        assert!(!exists(dir.path(), &keys[0]));
+        assert!(exists(dir.path(), &keys[1]));
+        assert!(exists(dir.path(), &keys[2]));
     }
 }

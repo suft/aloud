@@ -27,6 +27,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A finished audiobook is written to disk before it appears, and half-written `.m4b.part` files left by a crash are cleaned up when Aloud starts (#21).
 - Changing a book's cover keeps the old one if the new one can't be saved, and covers are decoded once (#23).
 - Saved audio that no longer belongs to a book (after a voice or text change), leftover temporary files and half-finished imports are cleaned up (#29).
+- Saved voice previews are capped at 50 MB, oldest first, and Settings shows them separately with a "Clear previews" button (#44).
 
 ## [0.1.0]
 

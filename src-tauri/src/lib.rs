@@ -137,6 +137,7 @@ pub fn run() {
             commands::project_cache_size,
             commands::clear_project_cache,
             commands::storage_size,
+            commands::clear_previews,
             commands::open_data_dir,
             commands::open_about,
             commands::open_output,

@@ -2,7 +2,7 @@
 
 pub mod cache;
 mod job;
-mod preview;
+pub(crate) mod preview;
 
 use serde::Serialize;
 use std::{

@@ -13,6 +13,8 @@ use crate::{
 };
 
 const MAX_TEXT_CHARS: usize = 400;
+/// Saved previews are trimmed, oldest first, to this many bytes.
+pub(crate) const PREVIEW_CAP_BYTES: u64 = 50 * 1024 * 1024;
 const PREVIEW_THREADS: usize = 2;
 
 #[derive(Default)]
@@ -60,6 +62,7 @@ impl RenderService {
         let key = plan::segment_key(settings.model, voice, speed, &batches.join("\u{1}"));
         let dir = self.data.previews();
         if let Ok(pcm) = cache::read_pcm(&dir, &key) {
+            cache::touch(&dir, &key);
             return Ok(pcm);
         }
 
@@ -91,6 +94,7 @@ impl RenderService {
         }
         drop(state);
         let _ = cache::write_pcm(&dir, &key, &out);
+        cache::trim_to(&dir, PREVIEW_CAP_BYTES);
         Ok(out)
     }
 }

@@ -17,6 +17,7 @@ pub fn sweep(data: &DataDir) {
     remove_failed_imports(data);
     remove_temp_files(data);
     remove_stale_parts(data);
+    crate::render::cache::trim_to(&data.previews(), crate::render::preview::PREVIEW_CAP_BYTES);
 }
 
 fn is_temp(path: &Path) -> bool {

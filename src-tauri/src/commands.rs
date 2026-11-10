@@ -996,18 +996,40 @@ pub async fn clear_project_cache(state: St<'_>, id: String) -> AppResult<()> {
     .await
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSize {
+    /// Saved audio of all books.
+    books: u64,
+    /// Saved voice previews.
+    previews: u64,
+}
+
 #[tauri::command]
-pub async fn storage_size(state: St<'_>) -> AppResult<u64> {
+pub async fn storage_size(state: St<'_>) -> AppResult<StorageSize> {
     let s = state.inner().clone();
     run(move || {
-        let projects = std::fs::read_dir(s.data.projects())
+        let books = std::fs::read_dir(s.data.projects())
             .map(|rd| {
                 rd.flatten()
                     .map(|e| fsx::dir_size(&e.path().join("audio")))
                     .sum::<u64>()
             })
             .unwrap_or(0);
-        Ok(projects + fsx::dir_size(&s.data.previews()))
+        Ok(StorageSize {
+            books,
+            previews: fsx::dir_size(&s.data.previews()),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn clear_previews(state: St<'_>) -> AppResult<()> {
+    let s = state.inner().clone();
+    run(move || match std::fs::remove_dir_all(s.data.previews()) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
     })
     .await
 }
