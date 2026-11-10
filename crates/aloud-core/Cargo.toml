@@ -1,0 +1,48 @@
+[package]
+name = "aloud-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Aloud core: EPUB import, Kokoro synthesis, M4B export"
+
+[dependencies]
+ort = { workspace = true }
+misaki-rs = { workspace = true }
+rusty_aac = { workspace = true }
+mp4 = { workspace = true }
+mp4ameta = { workspace = true }
+ebur128 = { workspace = true }
+blake3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+zip = { workspace = true }
+roxmltree = { workspace = true }
+scraper = { workspace = true }
+regex = { workspace = true }
+image = { workspace = true }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+num_cpus = { workspace = true }
+keepawake = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+
+# GPU execution providers are compiled in per platform (and select the matching ONNX Runtime build).
+# Linux has none: the WebGPU build needs libwebgpu_dawn.so next to the binary, which isn't bundled.
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { workspace = true, features = ["coreml"] }
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { workspace = true, features = ["directml"] }
+
+[dev-dependencies]
+clap = { version = "4", features = ["derive"] }
+ctrlc = "3"
+tiny_http = "0.12"
+tempfile = "3"
+
+[[example]]
+name = "aloud"
+path = "examples/aloud.rs"
