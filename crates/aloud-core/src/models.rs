@@ -31,12 +31,12 @@ pub const VOICES: Asset<'static> = Asset {
     size: 28_214_398,
     sha256: "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
 };
-const STANDARD: Asset<'static> = Asset {
+pub(crate) const STANDARD: Asset<'static> = Asset {
     file: "kokoro-v1.0.onnx",
     size: 325_532_387,
     sha256: "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
 };
-const FAST: Asset<'static> = Asset {
+pub(crate) const FAST: Asset<'static> = Asset {
     file: "kokoro-v1.0.int8.onnx",
     size: 92_361_271,
     sha256: "6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb",
