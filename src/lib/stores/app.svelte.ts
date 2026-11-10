@@ -45,6 +45,8 @@ class AppStore {
   voices = $state<VoiceInfo[]>([]);
   download = $state<DownloadState>({ variant: null, progress: null, error: null });
   #cancelled = false;
+  #settingsSeq = 0;
+  #settingsChain: Promise<unknown> = Promise.resolve();
 
   /** Valid once `ready` is true. */
   get settings(): Settings {
@@ -59,6 +61,7 @@ class AppStore {
   }
 
   set settings(value: Settings) {
+    this.#settingsSeq++;
     this.#settings = value;
   }
 
@@ -88,8 +91,10 @@ class AppStore {
 
   /** Re-reads settings and voice-pack status from the backend. */
   async refresh(): Promise<AppStateDto> {
+    const seq = this.#settingsSeq;
     const state = await api.getAppState();
-    this.#settings = state.settings;
+    // A settings write since the request started makes this copy stale.
+    if (seq === this.#settingsSeq) this.#settings = state.settings;
     this.#speedRange = state.speedRange;
     this.models = state.models;
     this.gpuSupported = state.gpuSupported;
@@ -101,9 +106,19 @@ class AppStore {
     this.screen = screen;
   }
 
-  async updateSettings(patch: SettingsPatch) {
+  /** Writes are chained: the backend may run concurrent writes out of order. */
+  updateSettings(patch: SettingsPatch): Promise<void> {
+    const run = this.#settingsChain.then(() => this.#applySettings(patch));
+    this.#settingsChain = run.catch(() => {});
+    return run;
+  }
+
+  async #applySettings(patch: SettingsPatch) {
+    this.#settingsSeq++;
     try {
-      this.#settings = await api.updateSettings(patch);
+      const settings = await api.updateSettings(patch);
+      this.#settingsSeq++;
+      this.#settings = settings;
     } catch (e) {
       toast.error(errorMessage(e));
     }

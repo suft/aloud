@@ -18,7 +18,11 @@ export class BookView {
   tricky = $state<TrickyWord[] | null>(null);
   /** Bumped when the cover file is replaced so the webview reloads it. */
   coverVersion = $state(0);
+  /** Why the project couldn't be loaded, if it couldn't. */
+  loadError = $state<string | null>(null);
   #trickyLoading = false;
+  /** Orders `load`, `patch` and `setCover`: only the latest response may replace `detail`. */
+  #seq = 0;
 
   /** Output-changing controls are frozen while the job runs. */
   locked = $derived(
@@ -30,18 +34,30 @@ export class BookView {
     this.id = id;
   }
 
+  /**
+   * Loads the project. After a failure it does nothing, so a book that can't be read isn't
+   * requested again on every event; the screen shows `loadError` instead.
+   */
   async load() {
+    if (this.loadError !== null) return;
+    const seq = ++this.#seq;
     try {
-      this.detail = await api.getProject(this.id);
+      const detail = await api.getProject(this.id);
+      if (seq === this.#seq) this.detail = detail;
     } catch (e) {
-      toast.error(errorMessage(e));
+      if (seq !== this.#seq) return;
+      this.loadError = errorMessage(e);
+      // Without a detail the screen shows the error itself.
+      if (this.detail !== null) toast.error(this.loadError);
     }
   }
 
   /** Applies a change; shows any failure as a toast and returns whether it succeeded. */
   async patch(patch: ProjectPatch): Promise<boolean> {
+    const seq = ++this.#seq;
     try {
-      this.detail = await api.updateProject(this.id, patch);
+      const detail = await api.updateProject(this.id, patch);
+      if (seq === this.#seq) this.detail = detail;
       return true;
     } catch (e) {
       toast.error(errorMessage(e));
@@ -50,8 +66,10 @@ export class BookView {
   }
 
   async setCover(path: string) {
+    const seq = ++this.#seq;
     try {
-      this.detail = await api.setCover(this.id, path);
+      const detail = await api.setCover(this.id, path);
+      if (seq === this.#seq) this.detail = detail;
       this.coverVersion++;
     } catch (e) {
       toast.error(errorMessage(e));

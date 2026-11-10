@@ -5,13 +5,23 @@ import { app } from "./app.svelte";
 class ProjectsStore {
   list = $state<ProjectSummary[]>([]);
   loaded = $state(false);
+  /** Orders responses: only the latest request may update the list. */
+  #seq = 0;
+  /** A failure was already toasted; stays set until a refresh succeeds. */
+  #failing = false;
 
   async refresh() {
+    const seq = ++this.#seq;
     try {
-      this.list = await api.listProjects();
+      const list = await api.listProjects();
+      if (seq !== this.#seq) return;
+      this.list = list;
+      this.#failing = false;
+      this.loaded = true;
     } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
+      if (seq !== this.#seq) return;
+      if (!this.#failing) toast.error(errorMessage(e));
+      this.#failing = true;
       this.loaded = true;
     }
   }

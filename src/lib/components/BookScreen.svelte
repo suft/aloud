@@ -1,9 +1,12 @@
 <script lang="ts">
   import { fade } from "svelte/transition";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import { on } from "$lib/api";
+  import { Button } from "$lib/components/ui/button";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Tabs from "$lib/components/ui/tabs";
   import { dur } from "$lib/motion";
+  import { app } from "$lib/stores/app.svelte";
   import { BookView } from "$lib/stores/book.svelte";
   import BookHero from "./BookHero.svelte";
   import ChaptersTab from "./ChaptersTab.svelte";
@@ -55,6 +58,16 @@
         <Tabs.Content value="details" class="pt-4"><DetailsTab {book} /></Tabs.Content>
       </Tabs.Root>
     </div>
+  </div>
+{:else if book.loadError}
+  <div class="mx-auto max-w-4xl space-y-4 p-8">
+    <div role="alert" class="rounded-2xl bg-destructive/10 p-5 text-sm text-destructive">
+      <div class="font-medium">This book couldn't be opened</div>
+      <p class="mt-1">{book.loadError}</p>
+    </div>
+    <Button variant="outline" onclick={() => app.go({ name: "library" })}>
+      <ArrowLeft /> Your books
+    </Button>
   </div>
 {:else}
   <div class="mx-auto max-w-4xl space-y-4 p-8">
