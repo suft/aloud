@@ -9,6 +9,8 @@ mockWindows("main");
 mockIPC(
   (cmd) => {
     switch (cmd) {
+      case "check_for_update":
+        return null;
       case "get_app_state":
         return appState(scenario);
       case "list_projects":
