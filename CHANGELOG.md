@@ -5,6 +5,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Reading speed is limited to a safe range everywhere, not only by the slider (#25).
+- Too many pronunciation fixes to apply now give a clear message when you add them (#24).
+- Turning off graphics acceleration after a failure is saved reliably (#42).
+- Chapters saved as Latin-1, Windows-1252 or UTF-16 text show their accents and symbols correctly (#27).
+- A chapter listed twice in an EPUB's reading order is added once (#28).
+- A voice pack that is already downloading can't be started a second time, and a damaged or oversized download is discarded (#26).
+- Removing or clearing one book no longer stops the audio of another (#47).
+- Playback no longer stutters when the next part of a chapter is read from disk (#36).
+- Opening "Words to check" on a paused book no longer changes its progress (#41).
+- Changing a book's chapters, voice or speed responds at once, and "% to redo" fills in a moment later (#33).
+- The book page no longer rereads the book's files every second while it renders (#34).
+- A book that can't be opened shows an error with a way back to your books, and a failing library shows one message instead of many (#40).
+- Quitting with Cmd+Q or from the Dock while a book is being made asks first, and quitting shows its progress (#39).
+- Sliders, progress bars and the queue button have names for screen readers, and light-on-light text is easier to read (#48).
+
 ## [0.1.0]
 
 ### Added
