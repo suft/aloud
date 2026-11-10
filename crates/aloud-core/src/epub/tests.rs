@@ -359,3 +359,41 @@ fn chapters_with_self_closing_title_import() {
     let titles: Vec<_> = book.chapters.iter().map(|c| c.title.as_str()).collect();
     assert_eq!(titles, ["One", "Two"]);
 }
+
+#[test]
+fn toc_anchors_split_one_file_into_chapters() {
+    let doc = r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title></head><body>
+        <h1 id="c1">One</h1><p>Alpha text.</p>
+        <h1>Two</h1><p><a id="c2"></a>Beta text.</p>
+        <section id="c3"><h1>Three</h1><p>Gamma text.</p></section></body></html>"#;
+    let bytes = epub_with(
+        &[
+            ("book.xhtml#c1", "One"),
+            ("book.xhtml#c2", "Two"),
+            ("book.xhtml#c3", "Three"),
+        ],
+        &[("book.xhtml", doc.as_bytes().to_vec())],
+    );
+    let (_d, data, r) = import_bytes(&bytes);
+    let book = ProjectStore::new(data).book(&r.unwrap().id).unwrap();
+    let titles: Vec<_> = book.chapters.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(titles, ["One", "Two", "Three"]);
+    let mut ids: Vec<_> = book.chapters.iter().map(|c| c.id.as_str()).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), 3);
+
+    let paras = |i: usize| -> Vec<&str> {
+        book.chapters[i]
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Para(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(paras(0), ["Alpha text."]);
+    assert_eq!(paras(1), ["Beta text."]);
+    assert_eq!(paras(2), ["Gamma text."]);
+}

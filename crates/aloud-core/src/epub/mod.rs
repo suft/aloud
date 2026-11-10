@@ -279,15 +279,29 @@ fn parse_opf(xml: &str, opf_dir: &str) -> Option<Opf> {
     Some(opf)
 }
 
-fn add_toc(map: &mut HashMap<String, String>, path: String, label: String) {
+struct TocEntry {
+    /// The `#fragment` of the TOC link (decoded), if it has one.
+    fragment: Option<String>,
+    label: String,
+}
+
+fn add_toc(map: &mut HashMap<String, Vec<TocEntry>>, base: &str, href: &str, label: String) {
     let label = html::clean(&label);
-    if !label.is_empty() {
-        map.entry(path).or_insert(label);
+    if label.is_empty() {
+        return;
+    }
+    let fragment = href
+        .split_once('#')
+        .map(|(_, f)| percent_decode(f))
+        .filter(|f| !f.is_empty());
+    let entries = map.entry(resolve(base, href)).or_default();
+    if !entries.iter().any(|e| e.fragment == fragment) {
+        entries.push(TocEntry { fragment, label });
     }
 }
 
-/// Map from document path (no fragment) to the first TOC label that points at it.
-fn toc_titles(zip: &mut Zip, opf: &Opf) -> HashMap<String, String> {
+/// Map from document path (no fragment) to the TOC entries that point into it, in TOC order.
+fn toc_titles(zip: &mut Zip, opf: &Opf) -> HashMap<String, Vec<TocEntry>> {
     let mut map = HashMap::new();
 
     let nav = opf
@@ -314,7 +328,7 @@ fn toc_titles(zip: &mut Zip, opf: &Opf) -> HashMap<String, String> {
             let base = dir_of(&nav.href).to_string();
             for a in n.select(&a_sel) {
                 let href = a.value().attr("href").unwrap_or("");
-                add_toc(&mut map, resolve(&base, href), a.text().collect::<String>());
+                add_toc(&mut map, &base, href, a.text().collect::<String>());
             }
         }
     }
@@ -339,12 +353,62 @@ fn toc_titles(zip: &mut Zip, opf: &Opf) -> HashMap<String, String> {
                     .find(|c| c.has_tag_name("navLabel"))
                     .map(text_of_node);
                 if let (Some(src), Some(label)) = (src, label) {
-                    add_toc(&mut map, resolve(&base, src), label);
+                    add_toc(&mut map, &base, src, label);
                 }
             }
         }
     }
     map
+}
+
+/// Adds one chapter (a document, or the part of one starting at a TOC anchor). Without a title
+/// from the TOC, the first heading names it; failing that it joins the previous chapter.
+fn push_section(
+    chapters: &mut Vec<Chapter>,
+    section_n: &mut usize,
+    id: String,
+    title: Option<String>,
+    blocks: Vec<Block>,
+    epub_types: &[String],
+) {
+    if !blocks.iter().any(|b| matches!(b, Block::Para(_))) {
+        return;
+    }
+    let title = title.or_else(|| {
+        blocks.iter().find_map(|b| match b {
+            Block::Heading(h) => Some(h.clone()),
+            _ => None,
+        })
+    });
+    match title {
+        None => {
+            if let Some(prev) = chapters.last_mut().filter(|c| c.kind == ChapterKind::Body) {
+                prev.blocks.push(Block::Break);
+                prev.blocks.extend(blocks);
+                prev.words = Chapter::count_words(&prev.blocks);
+            } else {
+                *section_n += 1;
+                let words = Chapter::count_words(&blocks);
+                chapters.push(Chapter {
+                    id,
+                    title: format!("Section {section_n}"),
+                    kind: kind_of("", epub_types),
+                    blocks,
+                    words,
+                });
+            }
+        }
+        Some(t) => {
+            let words = Chapter::count_words(&blocks);
+            chapters.push(Chapter {
+                id,
+                kind: kind_of(&t, epub_types),
+                title: t,
+                blocks,
+                words,
+            });
+        }
+    }
 }
 
 fn kind_of(title: &str, epub_types: &[String]) -> ChapterKind {
@@ -432,7 +496,10 @@ fn parse_epub(bytes: Vec<u8>, fallback_title: &str) -> std::result::Result<Parse
         let Some(text) = read_text(&mut zip, &item.href) else {
             continue;
         };
-        let doc = html::extract(&text, &title);
+        let entries: &[TocEntry] = titles.get(&item.href).map_or(&[], Vec::as_slice);
+        let anchored: Vec<&TocEntry> = entries.iter().filter(|e| e.fragment.is_some()).collect();
+        let anchors: Vec<String> = anchored.iter().filter_map(|e| e.fragment.clone()).collect();
+        let doc = html::extract(&text, &title, &anchors);
         if idx == 0 {
             // Keep only what cover detection needs; the blocks are consumed below.
             first_doc = Some((
@@ -441,46 +508,46 @@ fn parse_epub(bytes: Vec<u8>, fallback_title: &str) -> std::result::Result<Parse
                     blocks: doc.blocks.clone(),
                     epub_types: doc.epub_types.clone(),
                     first_image: doc.first_image.clone(),
+                    ..Default::default()
                 },
             ));
         }
         if !doc.blocks.iter().any(|b| matches!(b, Block::Para(_))) {
             continue;
         }
-        let doc_title = titles.get(&item.href).cloned().or_else(|| {
-            doc.blocks.iter().find_map(|b| match b {
-                Block::Heading(h) => Some(h.clone()),
-                _ => None,
-            })
-        });
-        match doc_title {
-            None => {
-                if let Some(prev) = chapters.last_mut().filter(|c| c.kind == ChapterKind::Body) {
-                    prev.blocks.push(Block::Break);
-                    prev.blocks.extend(doc.blocks);
-                    prev.words = Chapter::count_words(&prev.blocks);
-                } else {
-                    section_n += 1;
-                    let words = Chapter::count_words(&doc.blocks);
-                    chapters.push(Chapter {
-                        id: idref.clone(),
-                        title: format!("Section {section_n}"),
-                        kind: kind_of("", &doc.epub_types),
-                        blocks: doc.blocks,
-                        words,
-                    });
-                }
-            }
-            Some(t) => {
-                let words = Chapter::count_words(&doc.blocks);
-                chapters.push(Chapter {
-                    id: idref.clone(),
-                    kind: kind_of(&t, &doc.epub_types),
-                    title: t,
-                    blocks: doc.blocks,
-                    words,
-                });
-            }
+
+        // The part before the first anchor belongs to the TOC entry for the whole document;
+        // with no anchor found, the first entry names the document as before.
+        let lead_title = entries
+            .iter()
+            .find(|e| e.fragment.is_none())
+            .or_else(|| entries.first().filter(|_| doc.anchor_starts.is_empty()))
+            .map(|e| e.label.clone());
+        let mut lead = doc.blocks;
+        let mut sections = Vec::with_capacity(doc.anchor_starts.len());
+        for &(ai, start) in doc.anchor_starts.iter().rev() {
+            sections.push((ai, lead.split_off(start)));
+        }
+        sections.reverse();
+        push_section(
+            &mut chapters,
+            &mut section_n,
+            idref.clone(),
+            lead_title,
+            lead,
+            &doc.epub_types,
+        );
+        for (ai, blocks) in sections {
+            let entry = anchored[ai];
+            let fragment = entry.fragment.as_deref().unwrap_or_default();
+            push_section(
+                &mut chapters,
+                &mut section_n,
+                format!("{idref}#{fragment}"),
+                Some(entry.label.clone()),
+                blocks,
+                &doc.epub_types,
+            );
         }
     }
 

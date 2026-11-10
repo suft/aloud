@@ -70,6 +70,9 @@ pub struct Doc {
     pub epub_types: Vec<String>,
     /// `src` of the first image in the document (unresolved).
     pub first_image: Option<String>,
+    /// (index into `anchors`, index into `blocks` where that anchor's section starts), in
+    /// document order. Anchors that aren't in the document are absent.
+    pub anchor_starts: Vec<(usize, usize)>,
 }
 
 static SELF_CLOSING: LazyLock<Regex> =
@@ -92,7 +95,9 @@ fn expand_self_closing(html: &str) -> Cow<'_, str> {
     })
 }
 
-pub fn extract(html: &str, book_title: &str) -> Doc {
+/// `anchors` are the fragment ids of TOC entries pointing into this document; see
+/// `Doc::anchor_starts`.
+pub fn extract(html: &str, book_title: &str, anchors: &[String]) -> Doc {
     let dom = Html::parse_document(&expand_self_closing(html));
     let mut doc = Doc::default();
     let body_sel = Selector::parse("body").unwrap();
@@ -116,9 +121,30 @@ pub fn extract(html: &str, book_title: &str) -> Doc {
             .map(str::to_string)
     });
 
-    let mut raw = Vec::new();
-    handle(body, &mut raw, 0);
-    doc.blocks = finish_blocks(raw, book_title);
+    let mut walker = Walker {
+        raw: Vec::new(),
+        anchors,
+        starts: vec![None; anchors.len()],
+    };
+    handle(body, &mut walker, 0);
+    let Walker {
+        mut raw, starts, ..
+    } = walker;
+    // Each anchor that was found starts a section; clean every section on its own.
+    let mut cuts: Vec<(usize, usize)> = starts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| s.map(|pos| (pos, i)))
+        .collect();
+    cuts.sort_unstable();
+    let mut taken = 0;
+    for (pos, i) in cuts {
+        let section: Vec<Block> = raw.drain(..pos - taken).collect();
+        taken = pos;
+        doc.blocks.extend(finish_blocks(section, book_title));
+        doc.anchor_starts.push((i, doc.blocks.len()));
+    }
+    doc.blocks.extend(finish_blocks(raw, book_title));
     doc
 }
 
@@ -220,25 +246,65 @@ fn collect_text(el: ElementRef, small_caps: bool, out: &mut String, depth: usize
     }
 }
 
-/// Raw walk output: blocks before cleaning rules that need whole-chapter context.
-fn handle(el: ElementRef, out: &mut Vec<Block>, depth: usize) {
+/// The walk's output so far, and where each TOC anchor's section starts in it.
+struct Walker<'a> {
+    /// Blocks before cleaning rules that need whole-chapter context.
+    raw: Vec<Block>,
+    anchors: &'a [String],
+    starts: Vec<Option<usize>>,
+}
+
+impl Walker<'_> {
+    /// Records that the anchors named by `el` start at the next block. A leaf element becomes one
+    /// block, so anchors anywhere inside it count too; a container only counts its own.
+    fn mark(&mut self, el: ElementRef, leaf: bool) {
+        if self.anchors.is_empty() {
+            return;
+        }
+        let at = self.raw.len();
+        if leaf {
+            for e in el.descendants().filter_map(ElementRef::wrap) {
+                self.mark_one(e, at);
+            }
+        } else {
+            self.mark_one(el, at);
+        }
+    }
+
+    fn mark_one(&mut self, e: ElementRef, at: usize) {
+        let v = e.value();
+        let name = (v.name() == "a").then(|| v.attr("name")).flatten();
+        for key in [v.attr("id"), name].into_iter().flatten() {
+            if let Some(i) = self.anchors.iter().position(|a| a == key)
+                && self.starts[i].is_none()
+            {
+                self.starts[i] = Some(at);
+            }
+        }
+    }
+}
+
+fn handle(el: ElementRef, w: &mut Walker, depth: usize) {
     if depth > MAX_DEPTH || skip_element(el) {
         return;
     }
     let name = el.value().name();
     match name {
         "hr" => {
-            out.push(Block::Break);
+            w.mark(el, true);
+            w.raw.push(Block::Break);
             return;
         }
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            w.mark(el, true);
             let t = clean(&text_of(el));
             if t.chars().any(char::is_alphanumeric) {
-                out.push(Block::Heading(t));
+                w.raw.push(Block::Heading(t));
             }
             return;
         }
         "tr" => {
+            w.mark(el, true);
             let cells: Vec<String> = el
                 .children()
                 .filter_map(ElementRef::wrap)
@@ -247,26 +313,28 @@ fn handle(el: ElementRef, out: &mut Vec<Block>, depth: usize) {
                 .filter(|t| !t.is_empty())
                 .collect();
             if !cells.is_empty() {
-                emit_para(&cells.join(", "), out);
+                emit_para(&cells.join(", "), &mut w.raw);
             }
             return;
         }
         _ => {}
     }
 
-    let text = || text_of(el);
     if !el.text().any(|t| t.chars().any(char::is_alphabetic)) && BREAK_CLASS.is_match(class_of(&el))
     {
-        out.push(Block::Break);
+        w.mark(el, true);
+        w.raw.push(Block::Break);
         return;
     }
     // Symbol-only text (e.g. "* * *") is classified by emit_para.
 
     if !has_block_descendant(el) || has_direct_text(el) {
-        emit_para(&text(), out);
+        w.mark(el, true);
+        emit_para(&text_of(el), &mut w.raw);
     } else {
+        w.mark(el, false);
         for child in el.children().filter_map(ElementRef::wrap) {
-            handle(child, out, depth + 1);
+            handle(child, w, depth + 1);
         }
     }
 }
@@ -390,7 +458,7 @@ mod tests {
           <p class="x">After &#8220;quote&#8221; and [bracket] and i am.</p>
           <aside epub:type="footnote"><p>Hidden note</p></aside>
           </section></body></html>"##;
-        let d = extract(html, "Some Book");
+        let d = extract(html, "Some Book", &[]);
         assert_eq!(d.blocks[0], Block::Heading("One".into()));
         assert_eq!(
             paras(&d.blocks),
@@ -409,6 +477,7 @@ mod tests {
         let d = extract(
             "<body><table><tr><td>a</td><td>b</td></tr></table></body>",
             "T",
+            &[],
         );
         assert_eq!(paras(&d.blocks), vec!["A, b"]);
     }
@@ -416,7 +485,7 @@ mod tests {
     #[test]
     fn self_closing_title_keeps_the_body() {
         let html = r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title/></head><body><p>Hello there.</p><p>Line<br/>two.</p></body></html>"#;
-        let d = extract(html, "Book");
+        let d = extract(html, "Book", &[]);
         assert_eq!(paras(&d.blocks), vec!["Hello there.", "Line two."]);
     }
 }
