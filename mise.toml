@@ -23,11 +23,12 @@ depends = ["setup"]
 run = "bun tauri build"
 depends = ["setup"]
 
+# CI sets ALOUD_CARGO_ARGS (see .github/cargo-ci.toml); local runs leave it empty.
 [tasks.test]
-run = ["cargo test --workspace --exclude aloud", "bun run check"]
+run = ["cargo test {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} --workspace --exclude aloud", "bun run check"]
 
 [tasks.lint]
-run = ["cargo fmt --all --check", "cargo clippy --workspace --all-targets -- -D warnings", "bun run check", "bun run lint"]
+run = ["cargo fmt --all --check", "cargo clippy {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} --workspace --all-targets -- -D warnings", "bun run check", "bun run lint"]
 
 [tasks.fmt]
 run = ["cargo fmt --all", "bun run format"]
@@ -43,7 +44,7 @@ depends = ["models"]
 description = "Render a tiny generated EPUB end to end with the fast model"
 run = [
   "bun scripts/smoke.ts .smoke-data",
-  "cargo run -p aloud-core --example aloud -- --data .smoke-data --epub .smoke-data/smoke.epub --model fast --out .smoke-data/out",
+  "cargo run {{ get_env(name='ALOUD_CARGO_ARGS', default='') }} -p aloud-core --example aloud -- --data .smoke-data --epub .smoke-data/smoke.epub --model fast --out .smoke-data/out",
 ]
 
 [tasks.screenshots]

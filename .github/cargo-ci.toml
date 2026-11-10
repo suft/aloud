@@ -1,0 +1,8 @@
+# Extra cargo config for CI, passed with `--config` through ALOUD_CARGO_ARGS (see mise.toml).
+# CI compiles far more than it runs: unoptimised dependencies and no debug info keep builds short.
+[profile.dev]
+debug = false
+incremental = false
+
+[profile.dev.package."*"]
+opt-level = 0

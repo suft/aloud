@@ -14,9 +14,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
+    env:
+      ALOUD_CARGO_ARGS: --config .github/cargo-ci.toml
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,12 +34,47 @@ jobs:
           key: ${{ hashFiles('mise.toml') }}
       - run: mise run setup
       - run: mise run lint
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ALOUD_CARGO_ARGS: --config .github/cargo-ci.toml
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libasound2-dev libclang-dev libc++-dev libc++abi-dev build-essential libssl-dev
+      - uses: jdx/mise-action@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ hashFiles('mise.toml') }}
+      - run: mise run setup
       - run: mise run test
       - uses: actions/cache@v5
         with:
           path: .smoke-data/models
           key: kokoro-v1.0-fast
       - run: mise run smoke
+
+  # One stable status for the branch ruleset ("Protect main" requires a check named `check`).
+  check:
+    if: always()
+    needs: [lint, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the jobs above to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            [ "$r" = success ] || { echo "::error::A required job finished with: $r"; exit 1; }
+          done
 
   test-platforms:
     name: test (${{ matrix.os }})
