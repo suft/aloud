@@ -6,7 +6,7 @@ use aloud_core::{
     settings::Settings,
 };
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::player::Player;
@@ -95,11 +95,22 @@ impl Events for TauriEvents {
     }
 
     fn notice(&self, code: &str) {
-        if code == "gpu-fallback"
-            && let Ok(mut s) = Settings::load(&self.data)
-        {
-            s.gpu = false;
-            let _ = s.save(&self.data);
+        if code == "gpu-fallback" {
+            match self.app.try_state::<Arc<AppState>>() {
+                Some(state) => {
+                    if let Err(e) = state.update_settings(|s| {
+                        s.gpu = false;
+                        Ok::<_, aloud_core::Error>(())
+                    }) {
+                        log::warn!("couldn't turn off graphics acceleration after a fallback: {e}");
+                    }
+                }
+                None => {
+                    log::warn!(
+                        "graphics fallback before the app state was ready; settings unchanged"
+                    )
+                }
+            }
         }
         let _ = self.app.emit("notice", serde_json::json!({ "code": code }));
     }
