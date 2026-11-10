@@ -471,6 +471,13 @@ fn parse_epub(bytes: Vec<u8>, fallback_title: &str) -> std::result::Result<Parse
 
 /// Imports an EPUB into the data dir. Re-importing identical bytes returns the existing project.
 pub fn import(data: &DataDir, epub_path: &Path) -> Result<ProjectSummary> {
+    let is_epub = epub_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("epub"));
+    if !is_epub || !fs::metadata(epub_path).map_err(ImportError::Io)?.is_file() {
+        return Err(ImportError::NotEpub.into());
+    }
     let bytes = fs::read(epub_path).map_err(ImportError::Io)?;
     let id: String = blake3::hash(&bytes).to_hex()[..16].to_string();
     let store = ProjectStore::new(data.clone());
@@ -508,8 +515,28 @@ pub fn import(data: &DataDir, epub_path: &Path) -> Result<ProjectSummary> {
     Ok(store.summary(&project, &settings))
 }
 
+const COVER_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
 /// Copies a user-chosen image in as the project cover.
 pub fn set_cover(data: &DataDir, project: &mut Project, image_path: &Path) -> Result<()> {
+    let ext = image_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    if !matches!(ext.as_deref(), Some("jpg" | "jpeg" | "png" | "webp")) {
+        return Err(crate::Error::Invalid(
+            "Choose a JPEG, PNG or WebP image.".into(),
+        ));
+    }
+    let meta = fs::metadata(image_path)?;
+    if !meta.is_file() {
+        return Err(crate::Error::Invalid("Choose an image file.".into()));
+    }
+    if meta.len() > COVER_MAX_BYTES {
+        return Err(crate::Error::Invalid(
+            "That image is too large. Choose one under 50 MB.".into(),
+        ));
+    }
     let bytes = fs::read(image_path)?;
     let (name, out) = cover::prepare(&bytes)
         .ok_or_else(|| crate::Error::Invalid("That image couldn't be read.".into()))?;

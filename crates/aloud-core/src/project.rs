@@ -168,6 +168,11 @@ impl ProjectSummary {
     }
 }
 
+/// Project ids are the first 16 lowercase hex digits of the EPUB's blake3 hash (`epub::import`).
+pub fn is_project_id(id: &str) -> bool {
+    id.len() == 16 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// One lock per project directory, shared by every `ProjectStore` in the process (the app state,
 /// the render service and the importer each build their own store).
 static PROJECT_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> =
@@ -310,6 +315,7 @@ impl ProjectStore {
         let mut out: Vec<ProjectSummary> = rd
             .flatten()
             .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .filter(|e| is_project_id(&e.file_name().to_string_lossy()))
             .filter_map(|e| {
                 let id = e.file_name().to_string_lossy().into_owned();
                 match self.load(&id) {
@@ -338,17 +344,39 @@ mod tests {
             meta: BookMeta::default(),
             chapters: vec![],
         };
-        let mut good = Project::new("good", "b.epub".into(), &book, &settings);
+        let (good_id, bad_id, partial_id) =
+            ("0000000000000001", "0000000000000002", "0000000000000003");
+        let mut good = Project::new(good_id, "b.epub".into(), &book, &settings);
         store.save(&mut good).unwrap();
 
-        fs::create_dir_all(data.project("bad")).unwrap();
-        fs::write(data.project("bad").join("project.json"), "{nope").unwrap();
-        fs::create_dir_all(data.project("partial")).unwrap();
+        fs::create_dir_all(data.project(bad_id)).unwrap();
+        fs::write(data.project(bad_id).join("project.json"), "{nope").unwrap();
+        fs::create_dir_all(data.project(partial_id)).unwrap();
         fs::write(data.projects().join("stray.txt"), "x").unwrap();
+        // Not a project id, so never listed (or opened) even with a broken project.json.
+        fs::create_dir_all(data.project("not-a-project")).unwrap();
+        fs::write(data.project("not-a-project").join("project.json"), "{nope").unwrap();
 
         let list = store.list(&settings);
         let ids: Vec<(&str, bool)> = list.iter().map(|s| (s.id.as_str(), s.damaged)).collect();
-        assert_eq!(ids, [("good", false), ("bad", true)]);
+        assert_eq!(ids, [(good_id, false), (bad_id, true)]);
+    }
+
+    #[test]
+    fn project_ids_must_be_16_lowercase_hex() {
+        assert!(is_project_id("0123456789abcdef"));
+        for bad in [
+            "",
+            "0123456789ABCDEF",
+            "../0123456789abc",
+            "/etc/passwd",
+            "0123456789abcde",
+            "0123456789abcdef0",
+            "..\\..\\x",
+            "0123456789abcdeg",
+        ] {
+            assert!(!is_project_id(bad), "{bad:?}");
+        }
     }
 
     #[test]

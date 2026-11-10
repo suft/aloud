@@ -178,3 +178,53 @@ fn drm_and_non_epub_are_rejected() {
     let (_d, _data, r) = import_bytes(b"not a zip");
     assert!(matches!(r, Err(Error::Import(ImportError::NotEpub))));
 }
+
+#[test]
+fn only_epub_files_are_imported() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = DataDir::new(dir.path().join("data"));
+    let txt = dir.path().join("book.txt");
+    fs::write(&txt, build_epub(&[])).unwrap();
+    assert!(matches!(
+        import(&data, &txt),
+        Err(Error::Import(ImportError::NotEpub))
+    ));
+    // A directory with an .epub name is not a file either.
+    let folder = dir.path().join("folder.epub");
+    fs::create_dir(&folder).unwrap();
+    assert!(matches!(
+        import(&data, &folder),
+        Err(Error::Import(ImportError::NotEpub))
+    ));
+}
+
+#[test]
+fn covers_must_be_small_images() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = DataDir::new(dir.path().join("data"));
+    let settings = Settings::default();
+    let book = Book {
+        meta: BookMeta::default(),
+        chapters: vec![],
+    };
+    let mut project = Project::new("0000000000000001", "b.epub".into(), &book, &settings);
+    let bmp = dir.path().join("cover.bmp");
+    fs::write(&bmp, cover_png()).unwrap();
+    assert!(matches!(
+        set_cover(&data, &mut project, &bmp),
+        Err(Error::Invalid(_))
+    ));
+    let big = dir.path().join("big.png");
+    fs::File::create(&big)
+        .unwrap()
+        .set_len(COVER_MAX_BYTES + 1)
+        .unwrap();
+    assert!(matches!(
+        set_cover(&data, &mut project, &big),
+        Err(Error::Invalid(_))
+    ));
+    fs::create_dir_all(data.project(&project.id)).unwrap();
+    let ok = dir.path().join("cover.PNG");
+    fs::write(&ok, cover_png()).unwrap();
+    set_cover(&data, &mut project, &ok).unwrap_or_else(|e| panic!("{e}"));
+}

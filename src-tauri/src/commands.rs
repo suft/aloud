@@ -349,7 +349,11 @@ fn detail(s: &AppState, id: &str) -> AppResult<ProjectDetail> {
 #[tauri::command]
 pub async fn get_project(state: St<'_>, id: String) -> AppResult<ProjectDetail> {
     let s = state.inner().clone();
-    run(move || detail(&s, &id)).await
+    run(move || {
+        check_id(&id)?;
+        detail(&s, &id)
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -388,6 +392,15 @@ fn ensure_idle(s: &AppState, id: &str) -> AppResult<()> {
     }
 }
 
+/// Rejects ids that aren't real project ids before they reach a filesystem path.
+fn check_id(id: &str) -> AppResult<()> {
+    if aloud_core::project::is_project_id(id) {
+        Ok(())
+    } else {
+        Err(aloud_core::Error::NotFound(id.to_string()).into())
+    }
+}
+
 /// After a change that affects the audio, rebuild an existing plan so "% to redo" is exact.
 fn refresh_plan(s: &AppState, id: &str) {
     if s.store.plan_path(id).exists() {
@@ -405,6 +418,7 @@ pub async fn update_project(
 ) -> AppResult<ProjectDetail> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         ensure_idle(&s, &id)?;
         s.store.update(&id, |p| {
             if let Some(m) = patch.meta {
@@ -468,6 +482,7 @@ pub async fn update_project(
 pub async fn set_cover(state: St<'_>, id: String, path: PathBuf) -> AppResult<ProjectDetail> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         s.store.update(&id, |p| {
             epub::set_cover(&s.data, p, &path)?;
             Ok::<_, AppError>(true)
@@ -482,6 +497,7 @@ pub async fn set_cover(state: St<'_>, id: String, path: PathBuf) -> AppResult<Pr
 pub async fn delete_project(state: St<'_>, id: String) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         s.render.cancel(&id);
         s.player.send(Cmd::Stop);
         s.store.delete(&id)?;
@@ -530,6 +546,9 @@ pub async fn preview_voice(
 ) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
+        if let Some(id) = &project_id {
+            check_id(id)?;
+        }
         if !voices::is_known(&voice) {
             return Err(AppError::new("That voice isn't available."));
         }
@@ -545,6 +564,7 @@ pub async fn preview_voice(
 pub async fn test_pronunciation(state: St<'_>, project_id: String, text: String) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&project_id)?;
         let p = s.store.load(&project_id)?;
         play_preview(&s, Some(&project_id), &p.voice, p.speed, &text)
     })
@@ -555,6 +575,7 @@ pub async fn test_pronunciation(state: St<'_>, project_id: String, text: String)
 pub async fn get_tricky_words(state: St<'_>, id: String) -> AppResult<Vec<TrickyWord>> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         let app = s.app.clone();
         let pid = id.clone();
         let plan = s.render.ensure_plan(
@@ -587,6 +608,7 @@ pub async fn get_tricky_words(state: St<'_>, id: String) -> AppResult<Vec<Tricky
 pub async fn dismiss_word(state: St<'_>, id: String, word: String) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         let w = word.trim().to_lowercase();
         s.store.update(&id, |p| {
             let add = !w.is_empty() && !p.dismissed_words.contains(&w);
@@ -654,6 +676,9 @@ pub async fn upsert_pronunciation(
 ) -> AppResult<Vec<PronEntry>> {
     let s = state.inner().clone();
     run(move || {
+        if let Some(id) = &project_id {
+            check_id(id)?;
+        }
         entry.word = entry.word.trim().to_string();
         entry.validate()?;
         edit_prons(&s, scope, project_id.as_deref(), |l| upsert_entry(l, entry))
@@ -670,6 +695,9 @@ pub async fn delete_pronunciation(
 ) -> AppResult<Vec<PronEntry>> {
     let s = state.inner().clone();
     run(move || {
+        if let Some(id) = &project_id {
+            check_id(id)?;
+        }
         edit_prons(&s, scope, project_id.as_deref(), |l| {
             l.retain(|e| e.id != entry_id)
         })
@@ -683,6 +711,7 @@ pub async fn delete_pronunciation(
 pub async fn enqueue(state: St<'_>, id: String) -> AppResult<QueueState> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         require_models(&s)?;
         export::check_output_dir(&s.settings().output_dir)?;
         Ok(s.render.enqueue(&id)?)
@@ -693,7 +722,11 @@ pub async fn enqueue(state: St<'_>, id: String) -> AppResult<QueueState> {
 #[tauri::command]
 pub async fn cancel_render(state: St<'_>, id: String) -> AppResult<QueueState> {
     let s = state.inner().clone();
-    run(move || Ok(s.render.cancel(&id))).await
+    run(move || {
+        check_id(&id)?;
+        Ok(s.render.cancel(&id))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -719,6 +752,7 @@ pub enum Dir {
 pub async fn move_in_queue(state: St<'_>, id: String, direction: Dir) -> AppResult<QueueState> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         let d = match direction {
             Dir::Up => Direction::Up,
             Dir::Down => Direction::Down,
@@ -758,6 +792,7 @@ pub async fn player_play_chapter(
 ) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&project_id)?;
         let settings = s.settings();
         let project = s.store.load(&project_id)?;
         let hash = plan::compute_inputs_hash(&project, &settings);
@@ -927,13 +962,18 @@ pub async fn install_update(state: St<'_>) -> AppResult<()> {
 #[tauri::command]
 pub async fn project_cache_size(state: St<'_>, id: String) -> AppResult<u64> {
     let s = state.inner().clone();
-    run(move || Ok(fsx::dir_size(&s.data.project_audio(&id)))).await
+    run(move || {
+        check_id(&id)?;
+        Ok(fsx::dir_size(&s.data.project_audio(&id)))
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn clear_project_cache(state: St<'_>, id: String) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         ensure_idle(&s, &id)?;
         s.player.send(Cmd::Stop);
         match std::fs::remove_dir_all(s.data.project_audio(&id)) {
@@ -1025,6 +1065,7 @@ pub async fn open_about(state: St<'_>, doc: AboutDoc) -> AppResult<()> {
 pub async fn open_output(state: St<'_>, id: String) -> AppResult<()> {
     let s = state.inner().clone();
     run(move || {
+        check_id(&id)?;
         let ProjectStatus::Done { output, .. } = s.store.load(&id)?.status else {
             return Err(AppError::new("This audiobook isn't finished yet."));
         };
