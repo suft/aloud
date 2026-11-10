@@ -24,9 +24,9 @@ fn install_models(data: &DataDir) {
     for (path, size) in [
         (
             models::model_path(data, ModelVariant::Fast),
-            models::FAST.size,
+            ModelVariant::Fast.size(),
         ),
-        (models::voices_path(data), models::VOICES.size),
+        (models::voices_path(data), models::voices_asset().size),
     ] {
         std::fs::File::create(path).unwrap().set_len(size).unwrap();
     }

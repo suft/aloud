@@ -36,7 +36,7 @@ Tauri 2 shell, Svelte 5 UI.
   project's lock.
 - Settings writes go through `AppState::update_settings`, which holds the settings lock.
 - Reading-speed limits live only in `aloud_core::speed`; the UI gets them through `AppStateDto`.
-- Model sizes and checksums are written twice, in `models.rs` and `scripts/lib.ts`; keep both in sync.
+- Model URLs, sizes and checksums live only in `crates/aloud-core/models.json`; `models.rs` and `scripts/lib.ts` read it.
 - A changed command or DTO must also change in `src/lib/api.ts` and in the backend mocks
   `scripts/screenshots/{mock,alice}.ts`.
 - Events: `render-progress`, `project-updated`, `queue-updated`, `notice`, `player-state`,

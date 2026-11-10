@@ -12,6 +12,7 @@ import {
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import catalog from "../crates/aloud-core/models.json";
 
 export async function sha256File(path: string): Promise<string> {
   const h = createHash("sha256");
@@ -73,24 +74,11 @@ export async function ensureAlice(dest: string): Promise<void> {
   console.log("alice.epub: ok");
 }
 
-export const KOKORO_BASE =
-  "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0";
+export const KOKORO_BASE = catalog.baseUrl;
 
-/** `[file name, size, sha256]` of the Kokoro files; keep in sync with `crates/aloud-core/src/models.rs`. */
+/** `[file name, size, sha256]` of the Kokoro files, from `crates/aloud-core/models.json`. */
 export const KOKORO_FILES: Record<"voices" | "fast" | "standard", [string, number, string]> = {
-  voices: [
-    "voices-v1.0.bin",
-    28214398,
-    "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
-  ],
-  fast: [
-    "kokoro-v1.0.int8.onnx",
-    92361271,
-    "6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb",
-  ],
-  standard: [
-    "kokoro-v1.0.onnx",
-    325532387,
-    "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
-  ],
+  voices: [catalog.voices.file, catalog.voices.size, catalog.voices.sha256],
+  fast: [catalog.fast.file, catalog.fast.size, catalog.fast.sha256],
+  standard: [catalog.standard.file, catalog.standard.size, catalog.standard.sha256],
 };

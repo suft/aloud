@@ -1,6 +1,6 @@
 //! Model files: catalog, presence checks and a resumable, verified downloader.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashSet, VecDeque},
@@ -16,8 +16,6 @@ use std::{
 
 use crate::{paths::DataDir, settings::ModelVariant};
 
-const BASE_URL: &str =
-    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0";
 const CHUNK: usize = 64 * 1024;
 const PROGRESS_EVERY: Duration = Duration::from_millis(200);
 const SPEED_WINDOW: Duration = Duration::from_secs(5);
@@ -29,27 +27,47 @@ pub struct Asset<'a> {
     pub sha256: &'a str,
 }
 
-pub const VOICES: Asset<'static> = Asset {
-    file: "voices-v1.0.bin",
-    size: 28_214_398,
-    sha256: "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
-};
-pub(crate) const STANDARD: Asset<'static> = Asset {
-    file: "kokoro-v1.0.onnx",
-    size: 325_532_387,
-    sha256: "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
-};
-pub(crate) const FAST: Asset<'static> = Asset {
-    file: "kokoro-v1.0.int8.onnx",
-    size: 92_361_271,
-    sha256: "6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb",
-};
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Catalog {
+    base_url: String,
+    voices: AssetSpec,
+    fast: AssetSpec,
+    standard: AssetSpec,
+}
+
+#[derive(Deserialize)]
+struct AssetSpec {
+    file: String,
+    size: u64,
+    sha256: String,
+}
+
+impl AssetSpec {
+    fn asset(&self) -> Asset<'_> {
+        Asset {
+            file: &self.file,
+            size: self.size,
+            sha256: &self.sha256,
+        }
+    }
+}
+
+/// URLs, sizes and checksums of the model files; shared with `scripts/lib.ts`.
+static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../models.json")).expect("models.json is valid")
+});
+
+/// The voice styles file every model needs.
+pub fn voices_asset() -> Asset<'static> {
+    CATALOG.voices.asset()
+}
 
 impl ModelVariant {
     pub fn asset(self) -> Asset<'static> {
         match self {
-            ModelVariant::Standard => STANDARD,
-            ModelVariant::Fast => FAST,
+            ModelVariant::Standard => CATALOG.standard.asset(),
+            ModelVariant::Fast => CATALOG.fast.asset(),
         }
     }
     pub fn file(self) -> &'static str {
@@ -68,7 +86,7 @@ pub fn model_path(data: &DataDir, variant: ModelVariant) -> PathBuf {
 }
 
 pub fn voices_path(data: &DataDir) -> PathBuf {
-    data.models().join(VOICES.file)
+    data.models().join(voices_asset().file)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -96,9 +114,9 @@ fn present(dir: &Path, a: Asset) -> bool {
 pub fn status(data: &DataDir) -> ModelsStatus {
     let dir = data.models();
     ModelsStatus {
-        standard: present(&dir, STANDARD),
-        fast: present(&dir, FAST),
-        voices: present(&dir, VOICES),
+        standard: present(&dir, ModelVariant::Standard.asset()),
+        fast: present(&dir, ModelVariant::Fast.asset()),
+        voices: present(&dir, voices_asset()),
     }
 }
 
@@ -183,8 +201,15 @@ pub fn download(
 ) -> Result<(), DownloadError> {
     let dir = data.models();
     fs::create_dir_all(&dir)?;
-    for asset in [VOICES, variant.asset()] {
-        fetch(BASE_URL, asset, &dir, cancel, on_progress, PROGRESS_EVERY)?;
+    for asset in [voices_asset(), variant.asset()] {
+        fetch(
+            &CATALOG.base_url,
+            asset,
+            &dir,
+            cancel,
+            on_progress,
+            PROGRESS_EVERY,
+        )?;
     }
     Ok(())
 }
