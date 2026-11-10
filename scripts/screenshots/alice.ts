@@ -1,6 +1,6 @@
 // Alice in Wonderland fixture for the README screenshots. Chapter ids, titles and word counts
 // come from a real import of the Project Gutenberg EPUB; the render state is staged.
-import pkg from "../../package.json";
+import cargo from "../../Cargo.toml";
 import type {
   AppStateDto,
   PlayerState,
@@ -233,7 +233,7 @@ export function appState(s: Scenario): AppStateDto {
     active: s === "rendering" ? renderProgress() : null,
     gpuSupported: true,
     speedRange: { min: 0.5, max: 2, uiMin: 0.8, uiMax: 1.3 },
-    version: pkg.version,
+    version: cargo.workspace.package.version,
     startupNotices: [],
     sampleText:
       "Once upon a time, in a quiet town by the sea, there lived a girl who loved stories more than anything in the world.",

@@ -8,3 +8,9 @@ src-tauri/gen/
 .smoke-data/
 src-tauri/resources/THIRD-PARTY-NOTICES.txt
 .ort-cache/
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+*.swp
