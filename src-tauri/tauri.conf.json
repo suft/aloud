@@ -63,5 +63,16 @@
     "license": "GPL-3.0-or-later",
     "shortDescription": "Turn any EPUB into an audiobook on your computer.",
     "longDescription": "Aloud turns a DRM-free English EPUB into a chaptered M4B audiobook using the Kokoro voice model. Everything runs on your computer; nothing is uploaded."
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlEODcxM0E2QzI5MEY2QTkKUldTcDlwRENwaE9IblFvdXVib0lKbkpZTzlOQlhWN0JoQmxZeVdYSjMvQkg1V0N4Q3cxamwweVMK",
+      "endpoints": [
+        "https://github.com/suft/aloud/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

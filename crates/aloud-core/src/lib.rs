@@ -18,6 +18,7 @@ pub mod queue;
 pub mod render;
 pub mod settings;
 pub mod tts;
+pub mod update;
 pub mod voices;
 
 pub use error::{Error, Result};

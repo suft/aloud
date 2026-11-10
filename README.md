@@ -79,6 +79,10 @@ The builds are not code-signed:
 On first launch Aloud offers two voice packs: **Natural** (354 MB download, best sound) and **Fast** (121 MB).
 Your Mac's or PC's processor does the work; the voice packs are downloaded once from GitHub and checked against fixed checksums.
 
+Aloud checks GitHub for a newer release at launch (at most once a day) and shows an **Update** button in the header
+when one is available; updates are signed and verified before they are installed. Turn the automatic check off, or
+check by hand, in **Settings → About**.
+
 ## Develop
 
 Tools are managed with [mise](https://mise.jdx.dev). System packages on Linux: `webkit2gtk-4.1`, `alsa-lib`,

@@ -19,12 +19,23 @@ export interface Settings {
   gpu: boolean;
   keepAwake: boolean;
   notifyOnFinish: boolean;
+  checkUpdates: boolean;
   defaultVoice: string;
   defaultSpeed: number;
   pronunciations: PronEntry[];
   theme: Theme;
 }
 export type SettingsPatch = Partial<Settings>;
+
+export interface UpdateInfo {
+  version: string;
+  notes: string | null;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+}
 
 export interface ModelsStatus {
   standard: boolean;
@@ -243,6 +254,10 @@ export const api = {
   storageSize: () => call<number>("storage_size"),
   openDataDir: () => call<void>("open_data_dir"),
   openOutput: (id: string) => call<void>("open_output", { id }),
+
+  checkForUpdate: (force: boolean) => call<UpdateInfo | null>("check_for_update", { force }),
+  skipUpdate: (version: string) => call<void>("skip_update", { version }),
+  installUpdate: () => call<void>("install_update"),
   quitApp: () => call<void>("quit_app"),
 };
 
@@ -260,6 +275,8 @@ export const on = {
     subscribe("model-download-done", cb),
   playerState: (cb: (s: PlayerState) => void) => subscribe("player-state", cb),
   notice: (cb: (n: { code: string }) => void) => subscribe("notice", cb),
+  updateProgress: (cb: (p: UpdateProgress) => void) =>
+    subscribe<UpdateProgress>("update-progress", cb),
   confirmQuit: (cb: () => void) => subscribe<null>("confirm-quit", () => cb()),
 };
 

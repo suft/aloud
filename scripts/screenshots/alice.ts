@@ -125,6 +125,7 @@ export const SETTINGS: Settings = {
   gpu: false,
   keepAwake: true,
   notifyOnFinish: true,
+  checkUpdates: true,
   defaultVoice: "bf_emma",
   defaultSpeed: 1,
   pronunciations: GLOBAL_PRONS,

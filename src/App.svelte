@@ -14,12 +14,14 @@
   import QueueSheet from "$lib/components/QueueSheet.svelte";
   import RenderPill from "$lib/components/RenderPill.svelte";
   import SettingsScreen from "$lib/components/SettingsScreen.svelte";
+  import UpdateDialog from "$lib/components/UpdateDialog.svelte";
   import { Toaster } from "$lib/components/ui/sonner";
   import { dur } from "$lib/motion";
   import { app } from "$lib/stores/app.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { projects } from "$lib/stores/projects.svelte";
   import { render } from "$lib/stores/render.svelte";
+  import { update } from "$lib/stores/update.svelte";
   import { attempt } from "$lib/toast";
 
   let dragging = $state(false);
@@ -35,7 +37,10 @@
   });
 
   onMount(() => {
-    void app.boot().then(() => projects.refresh());
+    void app.boot().then(() => {
+      void projects.refresh();
+      void update.checkInBackground();
+    });
 
     const subscriptions = Promise.all([
       on.renderProgress((p) => render.setProgress(p)),
@@ -46,6 +51,7 @@
       on.projectUpdated(() => void projects.refresh()),
       on.modelDownload((p) => app.setDownloadProgress(p)),
       on.playerState((s) => (player.state = s)),
+      on.updateProgress((p) => (update.progress = p)),
       on.notice(({ code }) => {
         if (code === "gpu-fallback") {
           toast.warning(
@@ -100,6 +106,7 @@
 </div>
 
 <QueueSheet />
+<UpdateDialog />
 
 <ConfirmDialog
   bind:open={quitOpen}

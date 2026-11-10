@@ -12,6 +12,7 @@
   import { MODEL_INFO, MODEL_VARIANTS } from "$lib/models";
   import { app } from "$lib/stores/app.svelte";
   import { attempt } from "$lib/toast";
+  import { update } from "$lib/stores/update.svelte";
   import { cn } from "$lib/utils";
   import DownloadStatus from "./DownloadStatus.svelte";
   import SettingsCard from "./SettingsCard.svelte";
@@ -200,6 +201,24 @@
         Kokoro-82M (Apache-2.0), espeak-ng (GPL-3.0), misaki (Apache-2.0/MIT), ONNX Runtime (MIT).
         Aloud is free software under GPL-3.0.
       </p>
+    </div>
+    <div class="flex items-center justify-between gap-4">
+      <Label for="check-updates" class="font-normal">Check for updates automatically</Label>
+      <Switch
+        id="check-updates"
+        checked={settings.checkUpdates}
+        onCheckedChange={(checkUpdates) => app.updateSettings({ checkUpdates })}
+      />
+    </div>
+    <div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={update.checking}
+        onclick={() => update.checkNow()}
+      >
+        {update.checking ? "Checking…" : "Check now"}
+      </Button>
     </div>
   </SettingsCard>
 </div>

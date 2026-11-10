@@ -44,6 +44,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             configure_espeak(app);
             let data = match DataDir::from_env() {
@@ -68,6 +69,7 @@ pub fn run() {
                 settings_lock: Mutex::new(()),
                 download_cancel: AtomicBool::new(false),
                 downloading: AtomicBool::new(false),
+                pending_update: Mutex::new(None),
             }));
             Ok(())
         })
@@ -111,6 +113,9 @@ pub fn run() {
             commands::player_toggle,
             commands::player_stop,
             commands::player_seek,
+            commands::check_for_update,
+            commands::skip_update,
+            commands::install_update,
             commands::project_cache_size,
             commands::clear_project_cache,
             commands::storage_size,

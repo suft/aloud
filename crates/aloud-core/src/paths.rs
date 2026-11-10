@@ -25,6 +25,9 @@ impl DataDir {
     pub fn settings(&self) -> PathBuf {
         self.0.join("settings.json")
     }
+    pub fn update_state(&self) -> PathBuf {
+        self.0.join("update.json")
+    }
     pub fn queue(&self) -> PathBuf {
         self.0.join("queue.json")
     }

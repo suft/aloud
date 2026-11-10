@@ -1,8 +1,10 @@
 <script lang="ts">
   import ListMusic from "@lucide/svelte/icons/list-music";
+  import CircleArrowDown from "@lucide/svelte/icons/circle-arrow-down";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import { Button } from "$lib/components/ui/button";
   import { app } from "$lib/stores/app.svelte";
+  import { update } from "$lib/stores/update.svelte";
   import { render } from "$lib/stores/render.svelte";
   import { cn } from "$lib/utils";
 
@@ -32,6 +34,16 @@
 
   {#if !onboarding}
     <div class="flex items-center gap-1">
+      {#if update.available}
+        <Button
+          variant="outline"
+          size="sm"
+          title="Aloud {update.available.version} is available"
+          onclick={() => (update.dialogOpen = true)}
+        >
+          <CircleArrowDown /> Update
+        </Button>
+      {/if}
       <Button
         variant="ghost"
         size="icon"

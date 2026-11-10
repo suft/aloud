@@ -21,6 +21,8 @@ pub struct AppState {
     pub settings_lock: Mutex<()>,
     pub download_cancel: AtomicBool,
     pub downloading: AtomicBool,
+    /// Update found by the last check, kept so it can be installed without re-checking.
+    pub pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
 }
 
 impl AppState {

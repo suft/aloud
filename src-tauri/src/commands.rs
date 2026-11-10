@@ -12,15 +12,18 @@ use aloud_core::{
     render::{Direction, Phase, RenderProgress, cache},
     settings::{ModelVariant, Performance, Settings, Theme},
     tts,
+    update::UpdateState,
     voices::{self, VoiceInfo},
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     path::PathBuf,
     sync::{Arc, atomic::Ordering},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, State};
 use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::UpdaterExt;
 
 use crate::{
     error::{AppError, AppResult, run},
@@ -52,7 +55,7 @@ pub struct AppStateDto {
     queue: QueueState,
     active: Option<RenderProgress>,
     gpu_supported: bool,
-    version: &'static str,
+    version: String,
 }
 
 #[tauri::command]
@@ -65,7 +68,7 @@ pub async fn get_app_state(state: St<'_>) -> AppResult<AppStateDto> {
             queue: s.render.queue(),
             active: s.render.active(),
             gpu_supported: tts::gpu_supported(),
-            version: env!("CARGO_PKG_VERSION"),
+            version: s.app.package_info().version.to_string(),
         })
     })
     .await
@@ -80,6 +83,7 @@ pub struct SettingsPatch {
     gpu: Option<bool>,
     keep_awake: Option<bool>,
     notify_on_finish: Option<bool>,
+    check_updates: Option<bool>,
     default_voice: Option<String>,
     default_speed: Option<f32>,
     theme: Option<Theme>,
@@ -112,6 +116,9 @@ pub async fn update_settings(state: St<'_>, patch: SettingsPatch) -> AppResult<S
             }
             if let Some(v) = patch.notify_on_finish {
                 c.notify_on_finish = v;
+            }
+            if let Some(v) = patch.check_updates {
+                c.check_updates = v;
             }
             if let Some(v) = patch.default_voice {
                 c.default_voice = v;
@@ -771,6 +778,120 @@ pub fn player_stop(state: St<'_>) {
 #[tauri::command]
 pub fn player_seek(state: St<'_>, ms: u64) {
     state.player.send(Cmd::Seek(ms));
+}
+
+// ---------- updates ----------
+
+const UPDATE_BUSY: &str = "Pause the queue first to install the update.";
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    version: String,
+    notes: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct UpdateProgress {
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Looks for a newer release. Automatic checks (`force == false`) honor the opt-out, the 24 h
+/// throttle and the skipped version, and stay silent on failure; a forced check does none of that.
+#[tauri::command]
+pub async fn check_for_update(state: St<'_>, force: bool) -> AppResult<Option<UpdateInfo>> {
+    let s = state.inner().clone();
+    let (enabled, mut us) = {
+        let s = s.clone();
+        run(move || Ok((s.settings().check_updates, UpdateState::load(&s.data)?))).await?
+    };
+    let now = unix_now();
+    if !force && (!enabled || !us.is_due(now)) {
+        return Ok(None);
+    }
+    let checked = match s.app.updater() {
+        Ok(u) => u.check().await,
+        Err(e) => Err(e),
+    };
+    let found = match checked {
+        Ok(found) => found,
+        Err(_) if force => {
+            return Err(AppError::new(
+                "Couldn't check for updates. Check your internet connection and try again.",
+            ));
+        }
+        // Leave `checked_at` alone so the next launch retries.
+        Err(_) => return Ok(None),
+    };
+    let offered = found.filter(|u| force || !us.is_skipped(&u.version));
+    let Some(u) = offered else {
+        *s.pending_update.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        us.checked_at = now;
+        let data = s.data.clone();
+        run(move || Ok(us.save(&data)?)).await?;
+        return Ok(None);
+    };
+    let info = UpdateInfo {
+        version: u.version.clone(),
+        notes: u.body.clone(),
+    };
+    *s.pending_update.lock().unwrap_or_else(|e| e.into_inner()) = Some(u);
+    Ok(Some(info))
+}
+
+#[tauri::command]
+pub async fn skip_update(state: St<'_>, version: String) -> AppResult<()> {
+    let s = state.inner().clone();
+    *s.pending_update.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    run(move || {
+        let mut us = UpdateState::load(&s.data)?;
+        us.skipped_version = Some(version);
+        us.checked_at = unix_now();
+        Ok(us.save(&s.data)?)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn install_update(state: St<'_>) -> AppResult<()> {
+    let s = state.inner().clone();
+    if s.render.is_busy() {
+        return Err(AppError::new(UPDATE_BUSY));
+    }
+    let pending = s
+        .pending_update
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let Some(update) = pending else {
+        return Err(AppError::new("Check for updates again, then install."));
+    };
+    let mut downloaded = 0u64;
+    let mut last_emit: Option<Instant> = None;
+    let app = s.app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                if last_emit.is_none_or(|t| t.elapsed() >= Duration::from_millis(200)) {
+                    last_emit = Some(Instant::now());
+                    let _ = app.emit("update-progress", UpdateProgress { downloaded, total });
+                }
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| AppError::new(format!("The update couldn't be installed: {e}")))?;
+    s.app.restart()
 }
 
 // ---------- storage ----------

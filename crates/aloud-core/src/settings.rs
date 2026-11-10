@@ -46,6 +46,7 @@ pub struct Settings {
     pub gpu: bool,
     pub keep_awake: bool,
     pub notify_on_finish: bool,
+    pub check_updates: bool,
     pub default_voice: String,
     pub default_speed: f32,
     pub pronunciations: Vec<PronEntry>,
@@ -65,6 +66,7 @@ impl Default for Settings {
             gpu: false,
             keep_awake: true,
             notify_on_finish: true,
+            check_updates: true,
             default_voice: "af_heart".into(),
             default_speed: 1.0,
             pronunciations: Vec::new(),
@@ -92,6 +94,7 @@ mod tests {
     fn missing_fields_take_defaults() {
         let s: Settings = serde_json::from_str(r#"{"model":"fast","gpu":true}"#).unwrap();
         assert_eq!(s.model, ModelVariant::Fast);
+        assert!(s.check_updates);
         assert!(s.gpu);
         assert!(s.keep_awake);
         assert_eq!(s.default_voice, "af_heart");
