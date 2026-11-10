@@ -100,6 +100,7 @@ mise install && mise run setup && mise run dev
 | `mise run lint` / `fmt` | clippy, rustfmt, prettier                                                    |
 | `mise run models`       | Download the models and a public-domain test book into `.dev-data/`          |
 | `mise run e2e`          | Render two chapters of the test book with the CLI example                    |
+| `mise run smoke`        | Render a tiny generated EPUB end to end (fast model; CI runs this)           |
 | `mise run screenshots`  | Regenerate the README screenshots (headless Chromium, mocked backend)        |
 
 The Rust core (`crates/aloud-core`) has no UI dependency. `crates/aloud-core/examples/aloud.rs` is a CLI over the

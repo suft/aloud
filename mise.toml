@@ -34,6 +34,13 @@ run = "bun scripts/fetch-models.ts .dev-data/models"
 run = "cargo run --release -p aloud-core --example aloud -- --data .dev-data --epub .dev-data/alice.epub --chapters 1-2 --out .dev-data/out"
 depends = ["models"]
 
+[tasks.smoke]
+description = "Render a tiny generated EPUB end to end with the fast model"
+run = [
+  "bun scripts/smoke.ts .smoke-data",
+  "cargo run -p aloud-core --example aloud -- --data .smoke-data --epub .smoke-data/smoke.epub --model fast --out .smoke-data/out",
+]
+
 [tasks.screenshots]
 description = "Regenerate the README screenshots in docs/screenshots/"
 run = ["bun x playwright install --only-shell chromium", "bun scripts/screenshots/capture.ts"]

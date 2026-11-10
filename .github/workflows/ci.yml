@@ -23,6 +23,11 @@ jobs:
       - run: mise run setup
       - run: mise run lint
       - run: mise run test
+      - uses: actions/cache@v5
+        with:
+          path: .smoke-data/models
+          key: kokoro-v1.0-fast
+      - run: mise run smoke
 
   test-platforms:
     name: test (${{ matrix.os }})
@@ -40,3 +45,8 @@ jobs:
           key: ${{ hashFiles('mise.toml') }}
       - run: mise run setup
       - run: mise run test
+      - uses: actions/cache@v5
+        with:
+          path: .smoke-data/models
+          key: kokoro-v1.0-fast
+      - run: mise run smoke
