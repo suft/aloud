@@ -163,7 +163,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download release assets
-        run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" --dir assets
+        run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" --dir release-assets
       - name: Check every platform uploaded its assets
         run: |
           v="${TAG#v}"
@@ -173,16 +173,16 @@ jobs:
                    "Aloud_${v}_x64_en-US.msi" "Aloud_${v}_x64_en-US.msi.sig" \
                    "Aloud_${v}_aarch64.dmg" "Aloud_${v}_aarch64.app.tar.gz" "Aloud_${v}_aarch64.app.tar.gz.sig" \
                    "latest.json"; do
-            [ -f "assets/$f" ] || { echo "::error::Missing release asset $f"; missing=1; }
+            [ -f "release-assets/$f" ] || { echo "::error::Missing release asset $f"; missing=1; }
           done
           for p in linux-x86_64 windows-x86_64 darwin-aarch64; do
-            jq -e --arg p "$p" '.platforms[$p].url and .platforms[$p].signature' assets/latest.json >/dev/null \
+            jq -e --arg p "$p" '.platforms[$p].url and .platforms[$p].signature' release-assets/latest.json >/dev/null \
               || { echo "::error::latest.json has no $p entry"; missing=1; }
           done
           exit $missing
       - name: Upload SHA256SUMS
         run: |
-          (cd assets && sha256sum -- *) > SHA256SUMS
+          (cd release-assets && sha256sum -- *) > SHA256SUMS
           gh release upload "$TAG" SHA256SUMS --clobber -R "$GITHUB_REPOSITORY"
       - uses: actions/attest-build-provenance@v4
         with:
